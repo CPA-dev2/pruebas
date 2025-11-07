@@ -10,10 +10,12 @@ from .assignmentdistributor import Assignmentdistributor
 from .revisiondistributor import Revisiondistributor
 from .trackingdistributor import Trackingdistributor
 from .client import Client
+from .auditlog import Auditlog
 
 __all__ = [
     'BaseModel',
     'Rol',
+    'Auditlog',
     'Usuario',
     'Item',
     'Distributor',

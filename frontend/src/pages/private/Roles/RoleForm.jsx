@@ -47,7 +47,10 @@ const RoleForm = ({ onSubmit, initialValues, isSubmitting, isEditMode = false, i
         canDeleteItems: initialValues?.canDeleteItems || false,
         canCreateClients: initialValues?.canCreateClients || false,
         canUpdateClients: initialValues?.canUpdateClients || false,
-        canDeleteClients: initialValues?.canDeleteClients || false
+        canDeleteClients: initialValues?.canDeleteClients || false,
+        canViewAuditlogs: initialValues?.canViewAuditlogs || false,
+        canUpdateDistributors: initialValues?.canUpdateDistributors || false,
+        canDeleteDistributors: initialValues?.canDeleteDistributors || false,
       }}
       validationSchema={validationSchema}
       onSubmit={onSubmit}
@@ -125,6 +128,17 @@ const RoleForm = ({ onSubmit, initialValues, isSubmitting, isEditMode = false, i
                 <FormControl as={HStack} justify="space-between" isDisabled={!isEditMode}>
                   <FormLabel htmlFor="canDeleteDistributors" mb="0">Eliminar Distribuidores</FormLabel>
                   <Switch id="canDeleteDistributors" isChecked={values.canDeleteDistributors} onChange={(e) => setFieldValue('canDeleteDistributors', e.target.checked)} />
+                </FormControl>
+              </VStack>
+            )}
+
+             {!isCreateMode && (
+              <VStack spacing={4} align="stretch" w="full">
+                <Text fontWeight="bold" mt={4}>Permisos sobre Bitácora (Auditoría):</Text>
+                {/* Los interruptores de permisos solo están habilitados en modo edición */}
+                <FormControl as={HStack} justify="space-between" isDisabled={!isEditMode}>
+                  <FormLabel htmlFor="canViewAuditlogs" mb="0">Ver Registros</FormLabel>
+                  <Switch id="canViewAuditlogs" isChecked={values.canViewAuditlogs} onChange={(e) => setFieldValue('canViewAuditlogs', e.target.checked)} />
                 </FormControl>
               </VStack>
             )}

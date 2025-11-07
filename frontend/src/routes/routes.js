@@ -1,5 +1,5 @@
 // icons
-import { MdHome, MdList, MdPeople, MdBusiness } from "react-icons/md";
+import { MdHome, MdList, MdPeople, MdBusiness, MdHistory } from "react-icons/md";
 import { FiUsers } from "react-icons/fi";
 
 // pages
@@ -20,6 +20,7 @@ import DistributorDetailPage from "../pages/private/Distributors/DistributorDeta
 import DistributorEditPage from "../pages/private/Distributors/DistributorEditPage";
 import DistributorRegistration from "../pages/public/DistributorRegistration/DistributorRegistration";
 import DistributorValidatePage from "../pages/private/Distributors/Validate/DistributorValidatePage";
+import AuditlogsPage from "../pages/private/Auditlogs/AuditlogsPage";
 import Dashboard from "../pages/private/Dashboard/Dashboard";
 
 
@@ -106,7 +107,7 @@ export const routes = [
     component: DistributorRegistration,
     isPrivate: true,
     showSidebar: false, // Importante: no la mostramos en el menú lateral
-    accessValidate: ["DEMO", "Enfermera", "Viewer"],
+    accessValidate: ["DEMO", "Enfermera", "Backoffice"],
   },
   {
     name: "Editar Distribuidor",
@@ -159,6 +160,16 @@ export const routes = [
     accessValidate: ["Superuser"],
   },
   {
+    // Ruta de bitácora de auditoría (auditlog)
+    name: "Auditoría",
+    icon: MdHistory,
+    path: "/auditlogs",
+    component: AuditlogsPage,
+    isPrivate: true,
+    showSidebar: true,
+    accessValidate: ["Superuser","Admin","Backoffice"],
+  },
+  {
     // Ruta de login pública
     path: "/login",
     component: LoginPage,
@@ -166,4 +177,5 @@ export const routes = [
     showSidebar: false,
     accessValidate: false,
   },
+
 ];

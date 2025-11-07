@@ -51,7 +51,7 @@ const GET_USER_BY_ID_QUERY = `
 
 // Query simple para obtener todos los roles (para los dropdowns de los formularios)
 const GET_ALL_ROLES_LIST_QUERY = `
-  query GetAllRolesList {
+  query {
     allRoles {
       edges {
         node {
@@ -59,6 +59,18 @@ const GET_ALL_ROLES_LIST_QUERY = `
           nombre
         }
       }
+    }
+  }
+`;
+
+const SEARCH_USUARIOS_QUERY = `
+  query SearchUsuarios($query: String!, $first: Int) {
+    searchUsuarios(query: $query, first: $first) {
+      id
+      username
+      firstName
+      lastName
+      email
     }
   }
 `;
@@ -111,6 +123,12 @@ const UserService = {
   },
   deleteUser: (id) => {
     return apiClient.post('/graphql/', { query: DELETE_USER_MUTATION, variables: { id } });
+  },
+  searchUsuarios: (query, first = 10) => {
+    return apiClient.post('/graphql/', { 
+      query: SEARCH_USUARIOS_QUERY, 
+      variables: { query, first } 
+    });
   },
 };
 

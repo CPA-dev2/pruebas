@@ -28,7 +28,8 @@ def rol_admin(db):
         can_update_clients=True,
         can_delete_clients=True,
         can_update_distributors=True,
-        can_delete_distributors=True        
+        can_delete_distributors=True,
+        can_view_auditlogs=True
     )
 
 
@@ -41,12 +42,7 @@ def rol_editor(db):
         nombre="Editor",
         can_create_items=True,
         can_update_items=True,
-        can_delete_items=False,
-        can_create_clients=True,
-        can_update_clients=True,
-        can_delete_clients=True,
-        can_update_distributors=True,
-        can_delete_distributors=True
+        can_delete_items=False
     )
 
 
@@ -60,11 +56,12 @@ def rol_viewer(db):
         can_create_items=False,
         can_update_items=False,
         can_delete_items=False,
-        can_create_clients=False,
-        can_update_clients=False,
-        can_delete_clients=False,
-        can_update_distributors=False,
-        can_delete_distributors=False
+        can_create_clients=True,
+        can_update_clients=True,
+        can_delete_clients=True,
+        can_update_distributors=True,
+        can_delete_distributors=True,
+        can_view_auditlogs=False
     )
 
 
@@ -131,7 +128,7 @@ def auth_headers_factory(api_client):
 
         # Usamos la ruta de la api, no la de graphql
         response = api_client.post(
-            "/api/graphql/", json.dumps(data), content_type="application/json"
+            "/graphql/", json.dumps(data), content_type="application/json"
         )
 
         content = response.json()
@@ -280,3 +277,45 @@ def distributor_global_id_factory(distributor_factory):
         distributor = distributor_factory(**kwargs)
         return to_global_id('DistributorNode', distributor.pk)
     return _create_and_get_id
+
+@pytest.fixture
+def usuario_sin_permisos(db):
+    """
+    Crea un usuario sin permisos de auditoría.
+    """
+    rol = Rol.objects.create(
+        nombre="Sin Permisos",
+        can_view_auditlogs=False
+    )
+    return Usuario.objects.create_user(
+        username="sin_permisos",
+        email="sin_permisos@test.com",
+        password="testpass123",
+        rol=rol
+    )
+
+
+@pytest.fixture
+def usuario_admin(rol_admin):
+    """
+    Crea un usuario administrador con permisos de auditoría.
+    """
+    return Usuario.objects.create_user(
+        username="admin",
+        email="admin@test.com", 
+        password="testpass123",
+        rol=rol_admin
+    )
+
+
+@pytest.fixture
+def auditlog_sample(usuario_admin):
+    """
+    Crea un registro de auditoría de ejemplo para pruebas.
+    """
+    from api.models import Auditlog
+    return Auditlog.objects.create(
+        usuario=usuario_admin,
+        accion="Creación de Item",
+        descripcion="Item de prueba creado para testing"
+    )

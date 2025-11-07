@@ -63,6 +63,23 @@ def check_is_superuser(user):
             "No tienes permisos de superusuario para realizar esta acción."
         )
 
+def check_auditlog_permission(user):
+    """
+    Helper function para verificar permisos de auditoría.
+    Primero verifica si es superusuario, luego permiso específico.
+    """
+    try:
+        # Primero verificar si es superusuario
+        check_is_superuser(user)
+        return True
+    except GraphQLError:
+        # Si no es superusuario, verificar permiso específico
+        try:
+            check_permission(user, 'can_view_auditlogs')
+            return True
+        except GraphQLError:
+            raise GraphQLError("No tienes permisos para ver registros de auditoría")
+
 
 def check_user_role(user, allowed_roles: list):
     """

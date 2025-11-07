@@ -3,6 +3,7 @@ from graphql import GraphQLError
 from graphql_relay import from_global_id
 from api.models import Usuario, Rol
 from ..permissions import check_is_superuser
+from api.services.auditlog_service import log_action, log_model_update
 from ..schema.users import UsuarioType
 
 class CreateUserMutation(graphene.Mutation):
@@ -51,6 +52,12 @@ class CreateUserMutation(graphene.Mutation):
             last_name=kwargs.get('last_name'),
             rol=rol
         )
+        # Registrar la acción en el log de auditoría
+        log_action(
+            usuario=info.context.user,
+            accion="Creación de Usuario",
+            descripcion=f"Usuario '{user.username}' creado con ID {user.id}."
+        )
         return CreateUserMutation(user=user)
 
 class UpdateUserMutation(graphene.Mutation):
@@ -87,15 +94,61 @@ class UpdateUserMutation(graphene.Mutation):
             if 'email' in kwargs and Usuario.objects.filter(email=kwargs['email'], is_deleted=False).exclude(pk=real_id).exists():
                 raise GraphQLError("Ese correo electrónico ya está en uso.")
 
-            for key, value in kwargs.items():
-                if key == 'rol_id':
-                    if value:
-                        real_rol_id = from_global_id(value)[1]
+            # Preparar campos a actualizar
+            updated_fields = {}
+            if kwargs.get('username') is not None:
+                updated_fields['username'] = kwargs['username']
+            if kwargs.get('email') is not None:
+                updated_fields['email'] = kwargs['email']
+            if kwargs.get('first_name') is not None:
+                updated_fields['first_name'] = kwargs['first_name']
+            if kwargs.get('last_name') is not None:
+                updated_fields['last_name'] = kwargs['last_name']
+            if kwargs.get('is_active') is not None:
+                updated_fields['is_active'] = kwargs['is_active']
+            if kwargs.get('rol_id') is not None:
+                # Manejo especial para el rol - verificar si realmente cambia
+                if kwargs['rol_id'] != user.rol_id:
+                    if kwargs['rol_id']:
+                        real_rol_id = from_global_id(kwargs['rol_id'])[1]
+                        new_rol = Rol.objects.get(pk=real_rol_id, is_deleted=False)
+                        updated_fields['rol'] = new_rol.nombre  # Usar nombre del rol para auditoría
+                    else:
+                        updated_fields['rol'] = None  # Sin rol
+            
+            # Labels personalizados para campos de usuario para el frontend
+            field_labels = {
+                'username': 'Nombre de Usuario',
+                'email': 'Correo Electrónico', 
+                'first_name': 'Nombre',
+                'last_name': 'Apellido',
+                'is_active': 'Estado',
+                'rol': 'Rol'
+            }
+            
+            # Loggear cambios antes de guardar
+            log_model_update(
+                usuario=info.context.user,
+                instance=user,
+                updated_fields=updated_fields,
+                model_name="Usuario",
+                field_labels=field_labels
+            )
+            
+            # Aplicar cambios al modelo
+            for field_name, new_value in updated_fields.items():
+                if field_name == 'rol':
+                    # Manejo especial para el rol - aplicar al campo rol_id del modelo
+                    if kwargs.get('rol_id'):
+                        real_rol_id = from_global_id(kwargs['rol_id'])[1]
                         user.rol = Rol.objects.get(pk=real_rol_id, is_deleted=False)
                     else:
-                        user.rol = None # Permitir desasignar rol
-                elif value is not None:
-                    setattr(user, key, value)
+                        user.rol = None
+                else:
+                    # Para todos los demás campos, usar setattr
+                    if field_name in kwargs and kwargs[field_name] is not None:
+                        setattr(user, field_name, kwargs[field_name])
+            
             user.save()
             return UpdateUserMutation(user=user)
         except Usuario.DoesNotExist:
@@ -126,6 +179,12 @@ class DeleteUserMutation(graphene.Mutation):
             if user == info.context.user:
                 raise GraphQLError("No puedes eliminar tu propio usuario.")
             user.delete()
+            # Registrar la acción en el log de auditoría
+            log_action(
+                usuario=info.context.user,
+                accion="Borrado Lógico de Usuario",
+                descripcion=f"Usuario '{user.username}' (ID {user.id}) marcado como eliminado."
+            )
             return DeleteUserMutation(success=True)
         except Usuario.DoesNotExist:
             raise GraphQLError("El usuario no existe.")

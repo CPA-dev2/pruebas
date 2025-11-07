@@ -220,8 +220,8 @@ LOGGING = {
 AUTH_USER_MODEL = 'api.Usuario'
 
 # Internationalization
-LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
+LANGUAGE_CODE = 'es-gt'  # Español de Guatemala
+TIME_ZONE = 'America/Guatemala'  # Zona horaria de Guatemala (CST -0600)
 USE_I18N = True
 USE_TZ = True
 

@@ -66,6 +66,12 @@ class UserQuery(graphene.ObjectType):
         UsuarioType,
         description="Recupera los datos del usuario actualmente autenticado."
     )
+    search_usuarios = graphene.List(
+        UsuarioType,
+        query=graphene.String(required=True, description="Texto a buscar en username, nombre, apellido y email."),
+        first=graphene.Int(default_value=10, description="Número máximo de resultados a devolver."),
+        description="Busca usuarios que coincidan con el texto proporcionado. Requiere autenticación."
+    )
 
     def resolve_all_users(self, info, **kwargs):
         """
@@ -102,3 +108,27 @@ class UserQuery(graphene.ObjectType):
         """
         check_is_authenticated(info.context.user)
         return info.context.user
+
+    def resolve_search_usuarios(self, info, query, first=10):
+        """
+        Busca usuarios que coincidan con el texto proporcionado.
+        Busca en username, first_name, last_name y email.
+        """
+        from django.db.models import Q
+        
+        check_is_authenticated(info.context.user)
+        
+        # Construir filtros de búsqueda
+        search_filter = (
+            Q(username__icontains=query) |
+            Q(first_name__icontains=query) |
+            Q(last_name__icontains=query) |
+            Q(email__icontains=query)
+        )
+        
+        # Buscar usuarios activos y no eliminados
+        return Usuario.objects.filter(
+            search_filter,
+            is_active=True,
+            is_deleted=False
+        ).order_by('username')[:first]

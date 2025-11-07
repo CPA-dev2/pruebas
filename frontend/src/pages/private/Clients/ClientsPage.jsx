@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Box,
@@ -19,234 +19,134 @@ import {
 } from "@chakra-ui/react";
 import { AddIcon } from "@chakra-ui/icons";
 import { FiUsers } from "react-icons/fi";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { showSuccess, handleError } from "../../../services/NotificationService";
 import ClientService from "../../../services/ClientService";
 import GenericTable from "../../../components/Componentes_reutilizables/GenericTable";
 import GenericModal from "../../../components/Componentes_reutilizables/GenericModal";
-import ClientForm from "./ClientForm";
 import FiltrosClientes from "../../../components/Componentes_reutilizables/FiltrosClientes";
 import Paginacion from "../../../components/Componentes_reutilizables/Paginacion";
-
-const ITEMS_PER_PAGE = 10;
+import { usePagination } from "../../../hooks/usePagination"; // 1. Importar hook
 
 /**
- * `ClientsPage` es un componente de página completo para la gestión de "clientes".
- *
- * Responsabilidades:
- * - **Visualización de Datos**: Muestra una lista paginada y filtrable de clientes en una tabla.
- * - **Gestión de Estado**: Maneja el estado para los datos de clientes, paginación, filtros, carga y modales.
- * - **Operaciones CRUD**: Permite crear, editar y eliminar clientes a través de modales.
- * - **Navegación**: Redirige a la página de detalles de un cliente.
- * - **Feedback al Usuario**: Muestra notificaciones de éxito/error y estados de carga.
- *
- * Utiliza una serie de componentes reutilizables como `GenericTable`, `GenericModal`,
- * `FiltrosClientes` y `Paginacion` para construir la interfaz.
+ * `ClientsPage`
+ * Página para la gestión completa (CRUD) de la entidad "Clientes".
  */
 const ClientsPage = () => {
   const navigate = useNavigate();
   const { isOpen, onOpen, onClose } = useDisclosure();
   const textColor = useColorModeValue("gray.500", "gray.400");
+  const queryClient = useQueryClient();
 
-  // Estado para la lista de clientes y su paginación.
-  const [clients, setClients] = useState([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [pageInfo, setPageInfo] = useState({});
-  const [cursorStack, setCursorStack] = useState([null]); // Almacena cursores para paginación hacia atrás.
-  const [currentPage, setCurrentPage] = useState(1);
-
-  // Estado para controlar el modal (crear, editar, eliminar).
+  // --- Estado Local ---
   const [selectedClient, setSelectedClient] = useState(null);
-  const [modalMode, setModalMode] = useState("create");
-
-  // Estado para gestionar los indicadores de carga.
-  const [isLoading, setIsLoading] = useState(true); // Carga inicial o de datos.
-  const [isSubmitting, setIsSubmitting] = useState(false); // Envío de formularios (crear/editar/eliminar).
-
-  // Estado para los filtros de búsqueda.
+  // Nota: Este modal solo maneja la eliminación. Crear/Editar son páginas separadas.
+  const [modalMode, setModalMode] = useState("delete");
   const initialFilters = { search: ""};
-  const [filters, setFilters] = useState(initialFilters); // Filtros actuales en los inputs.
-  const [appliedFilters, setAppliedFilters] = useState(initialFilters); // Filtros que se aplican a la consulta.
+  const [filters, setFilters] = useState(initialFilters);
+  const [appliedFilters, setAppliedFilters] = useState(initialFilters);
+
+  // --- Hooks de Paginación y Datos ---
+  
+  // 2. Usar el hook de paginación
+  const { currentPage, currentCursor, itemsPerPage, nextPage, prevPage, resetPagination } = usePagination(10);
 
   /**
-   * Obtiene los clientes desde el servicio aplicando los filtros y la paginación actual.
-   * La función está envuelta en `useCallback` para optimizar el rendimiento,
-   * evitando recreaciones innecesarias en cada render.
-   * @param {object} variables - Opciones de paginación para la consulta GraphQL (e.g., first, after).
+   * 3. Función de Fetching para React Query
    */
-  const fetchClients = useCallback(
-    async (variables) => {
-      setIsLoading(true);
-      try {
-        // Limpia los filtros para no enviar valores vacíos a la API.
-        const cleanedFilters = Object.fromEntries(
-          Object.entries(appliedFilters).filter(([_, value]) => value !== "" && value !== null)
-        );
+  const fetchClients = async ({ queryKey }) => {
+    // queryKey es ['clients', appliedFilters, currentCursor]
+    const [_key, filters, cursor] = queryKey;
+    
+    const cleanedFilters = Object.fromEntries(
+      Object.entries(filters).filter(([_, value]) => value !== "" && value !== null)
+    );
 
-        const response = await ClientService.getClients({
-          ...cleanedFilters,
-          ...variables,
-        });
-        setTotalCount(response.data.data.clientsTotalCount || 0);
-        const { edges, pageInfo: newPageInfo } = response.data.data.allClients;
-        setClients(edges.map((edge) => edge.node));
-        setPageInfo(newPageInfo);
-      } catch (error) {
-        console.error("Error al cargar los clientes:", error);
-        console.error("Detalles del error:", error.response?.data);
-        handleError("No se pudieron cargar los clientes. Verifica que el backend esté funcionando correctamente.");
-      } finally {
-        setIsLoading(false);
-      }
+    const variables = { ...cleanedFilters, first: itemsPerPage, after: cursor };
+    const response = await ClientService.getClients(variables);
+    return response.data.data; // Devuelve { allClients, clientsTotalCount }
+  };
+
+  // 4. Hook `useQuery`
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ['clients', appliedFilters, currentCursor],
+    queryFn: fetchClients,
+    keepPreviousData: true,
+    onError: (error) => handleError("No se pudieron cargar los clientes."),
+  });
+
+  // --- Extracción de Datos ---
+  const clients = data?.allClients?.edges.map((edge) => edge.node) || [];
+  const totalCount = data?.clientsTotalCount || 0;
+  const pageInfo = data?.allClients?.pageInfo || {};
+
+  // --- Mutaciones ---
+  // 5. Hook `useMutation` para Eliminar
+  const deleteClientMutation = useMutation({
+    mutationFn: ClientService.deleteClient,
+    onSuccess: () => {
+      showSuccess("El cliente ha sido eliminado.");
+      resetPagination(); // Opcional: ir a pág 1 si el item borrado era el último
+      queryClient.invalidateQueries(['clients']); // Refetch
+      handleCloseModal();
     },
-    [appliedFilters]
-  );
+    onError: handleError,
+  });
 
-  // Efecto para la carga inicial de datos cuando el componente se monta.
-  useEffect(() => {
-    fetchClients({ first: ITEMS_PER_PAGE });
-  }, [fetchClients]);
-
-  /**
-   * Maneja el cambio de valor en los inputs de filtro.
-   * @param {React.ChangeEvent<HTMLInputElement>} e - El evento de cambio.
-   */
+  // --- Handlers de UI ---
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
     setFilters((prev) => ({ ...prev, [name]: value }));
   };
 
-  /**
-   * Aplica los filtros seleccionados, actualizando el estado `appliedFilters`
-   * y reiniciando la paginación para una nueva consulta.
-   */
   const applyFilters = () => {
     setAppliedFilters(filters);
     resetPagination();
   };
 
-  /**
-   * Limpia todos los filtros, restaurándolos a su estado inicial y
-   * realizando una nueva consulta.
-   */
   const clearFilters = () => {
     setFilters(initialFilters);
     setAppliedFilters(initialFilters);
     resetPagination();
   };
 
-  /**
-   * Reinicia la paginación a la primera página. Se llama al aplicar
-   * o limpiar filtros.
-   */
-  const resetPagination = () => {
-    setCursorStack([null]);
-    setCurrentPage(1);
-    fetchClients({ first: ITEMS_PER_PAGE });
+  // Abre el modal de eliminación
+  const handleDeleteModal = (client) => {
+    setModalMode("delete");
+    setSelectedClient(client);
+    onOpen();
   };
 
-  /**
-   * Abre el modal en un modo específico ('create', 'edit', 'delete') y
-   * establece el cliente seleccionado si es necesario.
-   * @param {string} mode - El modo en que se abrirá el modal.
-   * @param {object|null} client - El cliente a editar o eliminar.
-   */
-  const handleOpenModal = (mode, client = null) => {
-    if (mode === "delete"){
-      setSelectedClient(client);
-      onOpen();
-    }
-  };
-
-  /**
-   * Cierra el modal y limpia el estado del cliente seleccionado.
-   */
   const handleCloseModal = () => {
     setSelectedClient(null);
     onClose();
   };
 
-  /**
-   * Gestiona el envío del formulario de creación o edición de un cliente.
-   * @param {object} values - Los datos del formulario.
-   */
-  const handleSubmit = async (values) => {
-    setIsSubmitting(true);
-    try {
-      if (modalMode === "create") {
-        await ClientService.createClient(values);
-      } else if (modalMode === "edit") {
-        await ClientService.updateClient({ id: selectedClient.id, ...values });
-      }
-      showSuccess(`Cliente ${modalMode === "create" ? "creado" : "actualizado"} con éxito.`);
-      resetPagination();
-      handleCloseModal();
-    } catch (error) {
-      console.error("Error en operación:", error);
-      handleError(error);
-    } finally {
-      setIsSubmitting(false);
+  // Confirma la eliminación
+  const handleDeleteConfirm = () => {
+    if (selectedClient) {
+      deleteClientMutation.mutate(selectedClient.id);
     }
   };
 
-  /**
-   * Navega a la página para creación o edición del cliente.
-   * @param {object} client - El cliente al que se va a navegar.
-   */
+  // Handlers de Navegación
   const handleViewClient = (client) => navigate(`/clients/${client.id}`);
   const handleEditClient = (client) => navigate(`/clients/edit/${client.id}`);
-  const handleCreateClient = () => navigate("/clients/create");
-  const handleDeleteClient = (client) => { handleOpenModal("delete", client); }
+  const handleCreateClient = () => navigate("/clients/create"); // Navega a la página de creación
 
-  /**
-   * Confirma y ejecuta la eliminación de un cliente.
-   */
-  const handleDeleteConfirm = async () => {
-    setIsSubmitting(true);
-    try {
-      await ClientService.deleteClient(selectedClient.id);
-      showSuccess("El cliente ha sido eliminado.");
-      resetPagination();
-      handleCloseModal();
-    } catch (error){
-      handleError(error);
-    } finally {
-      setIsSubmitting(false);
+  const handleNext = () => {
+    if (pageInfo.hasNextPage) {
+      nextPage(pageInfo.endCursor);
     }
   };
 
-  /**
-   * Carga la página siguiente de resultados.
-   */
-  const handleNext = () => {
-    if (!pageInfo.hasNextPage) return;
-    setCursorStack((prev) => [...prev, pageInfo.endCursor]);
-    setCurrentPage((prev) => prev + 1);
-    fetchClients({ first: ITEMS_PER_PAGE, after: pageInfo.endCursor });
-  };
-
-  /**
-   * Carga la página anterior de resultados.
-   */
   const handlePrevious = () => {
-    if (currentPage === 1) return;
-    const prevCursor = cursorStack[cursorStack.length - 2] || null;
-    setCursorStack((prev) => prev.slice(0, -1));
-    setCurrentPage((prev) => prev - 1);
-    fetchClients({ first: ITEMS_PER_PAGE, after: prevCursor });
+    if (currentPage > 1) {
+      prevPage();
+    }
   };
-
-  // Define las columnas para el componente `GenericTable`.
-  const columns = [
-    { Header: "Nombres", accessor: "nombres" },
-    { Header: "Apellidos", accessor: "apellidos" },
-    { Header: "DPI", accessor: "dpi" },
-    { Header: "Email", accessor: "email" },
-    { Header: "Teléfono", accessor: "telefono" },
-    { Header: "Activo", accessor: "isActive" },
-  ];
-
-
-  // Muestra un spinner de carga a pantalla completa si es la carga inicial.
+  
+  // --- Renderizado ---
   if (isLoading && clients.length === 0) {
     return (
       <Center h="calc(100vh - 200px)">
@@ -282,13 +182,13 @@ const ClientsPage = () => {
           onFilterChange={handleFilterChange}
           onApplyFilters={applyFilters}
           onClearFilters={clearFilters}
-          isLoading={isLoading}
+          isLoading={isFetching}
         />
 
         <Divider />
 
         <CardBody pos="relative">
-          {isLoading && <OverlayLoader />}
+          {isFetching && <OverlayLoader />}
           {clients.length === 0 ? (
             <EmptyState />
           ) : (
@@ -297,7 +197,7 @@ const ClientsPage = () => {
               data={clients}
               onView={handleViewClient}
               onEdit={handleEditClient}
-              onDelete={handleDeleteClient}
+              onDelete={handleDeleteModal} // Pasa el handler del modal
             />
           )}
         </CardBody>
@@ -306,14 +206,13 @@ const ClientsPage = () => {
           <>
             <Divider />
             <Paginacion
-              pageInfo={pageInfo}
               currentPage={currentPage}
               onAnterior={handlePrevious}
               onSiguiente={handleNext}
-              isLoading={isLoading}
+              isLoading={isFetching}
               itemCount={clients.length}
               totalCount={totalCount}
-              itemsPerPage={ITEMS_PER_PAGE}
+              itemsPerPage={itemsPerPage}
             />
           </>
         )}
@@ -325,24 +224,29 @@ const ClientsPage = () => {
         title={"Confirmar Eliminación"}
         onConfirm={handleDeleteConfirm}
         confirmButtonText="Eliminar"
-        isLoading={isSubmitting}
+        isConfirming={deleteClientMutation.isLoading}
         size="md"
       >
-        
-          <Text>
-            ¿Estás seguro de que deseas eliminar el cliente "{selectedClient?.nombres} {selectedClient?.apellidos}"?
-            Esta acción no se puede deshacer.
-          </Text>
-     
+        <Text>
+          ¿Estás seguro de que deseas eliminar el cliente "<b>{selectedClient?.nombres} {selectedClient?.apellidos}</b>"?
+          Esta acción no se puede deshacer.
+        </Text>
       </GenericModal>
     </Box>
   );
 };
 
-/**
- * `OverlayLoader` es un componente que muestra un indicador de carga superpuesto
- * sobre el contenido de la tabla cuando se están realizando operaciones.
- */
+// --- Constantes y Componentes de UI ---
+
+const columns = [
+  { Header: "Nombres", accessor: "nombres" },
+  { Header: "Apellidos", accessor: "apellidos" },
+  { Header: "DPI", accessor: "dpi" },
+  { Header: "Email", accessor: "email" },
+  { Header: "Teléfono", accessor: "telefono" },
+  { Header: "Activo", accessor: "isActive" },
+];
+
 const OverlayLoader = () => (
   <Center
     position="absolute"
@@ -357,11 +261,6 @@ const OverlayLoader = () => (
   </Center>
 );
 
-/**
- * `EmptyState` es un componente que se muestra cuando una tabla o lista no
- * tiene datos para mostrar (por ejemplo, después de aplicar filtros que no
- * arrojan resultados).
- */
 const EmptyState = () => (
   <Center p={10}>
     <VStack>

@@ -6,6 +6,7 @@ from .graphql.schema.roles import RolQuery
 from .graphql.schema.clients import ClientQuery
 from .graphql.schema.distributor import DistributorQuery 
 from .graphql.schema.trackingdistributors_table import DistributorsTrackingTableQuery
+from .graphql.schema.auditlogs import AuditlogQuery
 from .graphql.mutations.items import ItemMutations
 from .graphql.mutations.auth import AuthMutations
 from .graphql.mutations.users import UserMutations
@@ -22,7 +23,8 @@ from .graphql.mutations.assignments import AssignmentMutations
 class Query(
     ItemQuery, 
     UserQuery, 
-    RolQuery, 
+    RolQuery,
+    AuditlogQuery, 
     ClientQuery, 
     DistributorQuery,
     DistributorsTrackingTableQuery,
