@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 from .base_model import BaseModel
 
 class Distributor(BaseModel):
@@ -64,11 +65,14 @@ class Distributor(BaseModel):
     )
     negocio_nombre = models.CharField(
         max_length=200,
+        null=True,
+        blank=True,
         help_text="Nombre del negocio del distribuidor."
     )
     nit = models.CharField(
         max_length=20,
-        unique=True,
+        null=True,
+        blank=True,
         help_text="NIT del distribuidor."
     )
     telefono_negocio = models.CharField(
@@ -145,3 +149,11 @@ class Distributor(BaseModel):
     class Meta:
         verbose_name = "Distribuidor"
         verbose_name_plural = "Distribuidores"
+        constraints = [
+            models.UniqueConstraint(
+                fields=['nit'],
+                # Esto aplica la regla 'unique' SOLO si el nit NO es nulo
+                condition=Q(nit__isnull=False), 
+                name='unique_nit_not_null'
+            )
+        ]

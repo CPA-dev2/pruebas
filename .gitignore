@@ -37,11 +37,6 @@ pip-log.txt
 media/
 
 
-# --- Archivos Multimedia (Media Files) --- #
-# Ignora la carpeta de archivos subidos por usuarios
-media/
-
-
 # --- Archivos de Configuración de IDEs y Editores --- #
 # Ignora configuraciones específicas de tu entorno de desarrollo local.
 .idea/

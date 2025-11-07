@@ -2,13 +2,11 @@ import graphene
 from graphql import GraphQLError
 from graphql_relay import from_global_id
 
+
 from ..permissions import check_permission
 
 from api.models import Item
 from ..schema.items import ItemNode as ItemType
-
-from api.services.auditlog_service import log_action, log_model_update
-
 
 
 class CreateItemMutation(graphene.Mutation):
@@ -31,13 +29,6 @@ class CreateItemMutation(graphene.Mutation):
         check_permission(info.context.user, 'can_create_items')
         item = Item(nombre=nombre, descripcion=descripcion)
         item.save()
-
-        # Registrar la acción en el log de auditoría
-        log_action(
-            usuario=info.context.user,
-            accion="Creación de Item",
-            descripcion=f"Item '{item.nombre}' creado con ID {item.id}."
-        )
         return CreateItemMutation(item=item)
 
 
@@ -66,37 +57,12 @@ class UpdateItemMutation(graphene.Mutation):
             real_id = from_global_id(id)[1]
             item = Item.objects.get(pk=real_id, is_deleted=False)
 
-            # Preparar campos a actualizar
-            updated_fields = {}
             if nombre is not None:
-                updated_fields['nombre'] = nombre
+                item.nombre = nombre
             if descripcion is not None:
-                updated_fields['descripcion'] = descripcion
+                item.descripcion = descripcion
             if is_active is not None:
-                updated_fields['is_active'] = is_active
-            
-            # Labels personalizados para campos para el frontend
-            field_labels = {
-                'nombre': 'Nombre',
-                'descripcion': 'Descripción',
-                'is_active': 'Estado'
-            }
-            
-            # Loggear cambios antes de guardar
-            log_model_update(
-                usuario=info.context.user,
-                instance=item,
-                updated_fields=updated_fields,
-                model_name="Item",
-                field_labels=field_labels
-            )
-            
-            # Aplicar cambios al modelo
-            # Se reciben los nombres de los campos y sus nuevos valores.
-            # Por cada iteración equivale a: item.nombre = 'Item Actualizado'
-            for field_name, new_value in updated_fields.items():
-                setattr(item, field_name, new_value)
-            
+                item.is_active = is_active
             item.save()
             return UpdateItemMutation(item=item)
         except Item.DoesNotExist:
@@ -125,12 +91,6 @@ class DeleteItemMutation(graphene.Mutation):
             real_id = from_global_id(id)[1]
             item = Item.objects.get(pk=real_id)
             item.delete()  # Llama al método soft delete del manager
-            # Registrar la acción en el log de auditoría
-            log_action(
-                usuario=info.context.user,
-                accion="Borrado Lógico de Item",
-                descripcion=f"Item '{item.nombre}' (ID {item.id}) marcado como eliminado."
-            )
             return DeleteItemMutation(success=True)
         except Item.DoesNotExist:
             raise GraphQLError("El item no existe o ha sido eliminado.")
@@ -158,12 +118,6 @@ class HardDeleteItemMutation(graphene.Mutation):
             real_id = from_global_id(id)[1]
             item = Item.objects.get(pk=real_id)
             item.hard_delete()  # Llama al método de borrado físico
-            # Registrar la acción en el log de auditoría
-            log_action(
-                usuario=info.context.user,
-                accion="Borrado Físico de Item",
-                descripcion=f"Item '{item.nombre}' (ID {item.id}) eliminado permanentemente."
-            )
             return HardDeleteItemMutation(success=True)
         except Item.DoesNotExist:
             raise GraphQLError("El item no existe o ha sido eliminado.")

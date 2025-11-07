@@ -1,5 +1,5 @@
-// frontend/src/services/DistributorService.js
 import apiClient from './ApiClient';
+import { graphqlMultipartRequest } from  '../utils/fileUtils';
 
 const GET_DISTRIBUTORS_QUERY = `
   query GetAllDistributors(
@@ -390,9 +390,7 @@ const UPDATE_DISTRIBUTOR_MUTATION = `
     $numeroCuenta: String,
     $tipoCuenta: String,
     $banco: String,
-    $estado: String,
-    $referencias: [ReferenceUpdateInput],
-    $documentos: [DocumentInput]
+    $estado: String
   ) {
     updateDistributor(
       id: $id,
@@ -416,9 +414,7 @@ const UPDATE_DISTRIBUTOR_MUTATION = `
       numeroCuenta: $numeroCuenta,
       tipoCuenta: $tipoCuenta,
       banco: $banco,
-      estado: $estado,
-      referencias: $referencias,
-      documentos: $documentos
+      estado: $estado
     ) {
       distributor {
         id
@@ -468,13 +464,13 @@ const UPLOAD_SINGLE_DOCUMENT_MUTATION = `
   mutation UploadSingleDocument(
     $distributorId: ID!, 
     $tipoDocumento: String!, 
-    $archivoBase64: String!,
+    $archivoBase: Upload!,
     $nombreArchivo: String!
   ) {
     addDocumentToDistributor(
       distributorId: $distributorId, 
       tipoDocumento: $tipoDocumento, 
-      archivoBase64: $archivoBase64,
+      archivoBase: $archivoBase,
       nombreArchivo: $nombreArchivo
     ) {
       document {
@@ -750,10 +746,14 @@ const DistributorService = {
   },
    
   createDistributor: (distributorData) => {
-    return apiClient.post('/graphql/', { 
-      query: CREATE_DISTRIBUTOR_MUTATION, 
-      variables: distributorData 
-    });
+      const formData = graphqlMultipartRequest(
+        CREATE_DISTRIBUTOR_MUTATION,
+        distributorData
+      );
+      return apiClient.post('/graphql/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
   },
   
   updateDistributor: (id, distributorData) => {
@@ -905,26 +905,26 @@ const DistributorService = {
 
   uploadSingleDocument: async (distributorId, tipoDocumento, archivo) => {
     // Para upload de un documento individual (usado en edición)
-    // Convierte el archivo a base64
-    const archivoBase64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        // Extraer solo la parte base64 (sin el prefijo "data:image/png;base64,")
-        const base64String = reader.result.split(',')[1];
-        resolve(base64String);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(archivo);
-    });
-
-    return apiClient.post('/graphql/', {
+    const formData = new FormData();
+  
+    formData.append('operations', JSON.stringify({
       query: UPLOAD_SINGLE_DOCUMENT_MUTATION,
       variables: {
         distributorId,
         tipoDocumento,
-        archivoBase64,
+        archivoBase: null,
         nombreArchivo: archivo.name
       }
+    }));
+    
+    formData.append('map', JSON.stringify({
+      "0": ["variables.archivoBase"]  
+    }));
+    
+    formData.append('0', archivo);
+    
+    return apiClient.post('/graphql/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
     });
   },
 

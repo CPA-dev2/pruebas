@@ -3,7 +3,7 @@ import graphene
 from api.models import Trackingdistributor, Distributor
 from api.graphql.filters import TrackingdistributorFilter
 from api.services.tracking_summary import summarize_tracking_by_distributor
-from api.utils.time_tracking_distributors import humanize_seconds
+from api.utils.distributors.time_tracking_distributors import humanize_seconds
 
 def _decode_cursor(cursor: str) -> int:
     raw = base64.b64decode(cursor).decode("utf-8")  # "arrayconnection:<idx>"

@@ -56,11 +56,6 @@ class Rol(BaseModel):
             default=False,
             help_text="Permite al rol eliminar clientes."
     )
-    can_view_auditlogs = models.BooleanField(
-        default=False,
-        help_text="Permite al rol ver los registros de auditoría."
-    )
-
 
     def __str__(self):
         """

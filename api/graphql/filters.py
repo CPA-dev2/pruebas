@@ -1,8 +1,6 @@
 import django_filters
 from django.db.models import Q
-from django.utils import timezone
-from datetime import datetime
-from ..models import Item, Usuario, Rol, Client, Distributor, Trackingdistributor, Auditlog
+from ..models import Item, Usuario, Rol, Client, Distributor, Trackingdistributor
 
 class ItemFilter(django_filters.FilterSet):
     """Filtros personalizados para el modelo Item."""
@@ -54,6 +52,7 @@ class RolFilter(django_filters.FilterSet):
     class Meta:
         model = Rol
         fields = ['nombre']
+
 class ClientFilter(django_filters.FilterSet):
     """Filtros personalizados para el modelo Client."""
     search = django_filters.CharFilter(method='filter_by_search', label="Buscar por nombres, apellidos, DPI o NIT")
@@ -124,71 +123,4 @@ class TrackingdistributorFilter(django_filters.FilterSet):
         return queryset.filter(
             Q(distribuidor__negocio_nombre__icontains=value) | 
             Q(distribuidor__nit__icontains=value)
-        )
-    
-class AuditlogFilter(django_filters.FilterSet):
-    """ Filtros personalizados para el modelo Auditlog.
-        fecha, usuario, acción, descripción
-    """
-    # Filtros por fecha con manejo manual de timezone
-    created_after = django_filters.DateTimeFilter(method='filter_created_after')
-    created_before = django_filters.DateTimeFilter(method='filter_created_before')
-
-    # Filtro por usuario - puede ser ID o texto de búsqueda
-    usuario = django_filters.CharFilter(method='filter_by_usuario')
-
-    # Filtro por acción
-    accion = django_filters.CharFilter(field_name='accion', lookup_expr='icontains')
-
-    # Filtro por descripción
-    descripcion = django_filters.CharFilter(field_name='descripcion', lookup_expr='icontains')
-
-    class Meta:
-        model = Auditlog
-        fields = {
-            'accion': ['icontains'],
-            'descripcion': ['icontains'],
-        }
-
-    def filter_created_after(self, queryset, name, value):
-        """Filtro desde la fecha/hora especificada tratándola como hora local"""
-        
-        local_datetime = value
-
-        return queryset.filter(created__gte=local_datetime)
-
-    def filter_created_before(self, queryset, name, value):
-        """Filtro hasta la fecha/hora especificada tratándola como hora local"""
-
-        local_datetime = value
-
-        return queryset.filter(created__lte=local_datetime)
-
-    def filter_by_usuario(self, queryset, name, value):
-        """
-        Filtra por usuario - puede ser ID numérico o texto de búsqueda.
-        Si es un número, busca por ID exacto.
-        Si es texto, busca en username, nombre, apellido y email del usuario.
-        """
-        if not value:
-            return queryset
-            
-        # Intentar convertir a int para filtrar por ID
-        try:
-            user_id = int(value)
-            return queryset.filter(usuario__id=user_id)
-        except (ValueError, TypeError):
-            # Si no es un número, buscar por texto
-            return queryset.filter(
-                Q(usuario__username__icontains=value) |
-                Q(usuario__first_name__icontains=value) |
-                Q(usuario__last_name__icontains=value) |
-                Q(usuario__email__icontains=value)
-            )
-
-    def filter_by_search(self, queryset, name, value):
-        return queryset.filter(
-            Q(usuario__username__icontains=value) |
-            Q(accion__icontains=value) |
-            Q(descripcion__icontains=value)
         )

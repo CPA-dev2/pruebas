@@ -67,8 +67,7 @@ const UPDATE_ROLE_MUTATION = `
     $canDeleteItems: Boolean,
     $canCreateClients: Boolean,
     $canUpdateClients: Boolean,
-    $canDeleteClients: Boolean,
-    $canViewAuditlogs: Boolean
+    $canDeleteClients: Boolean
   ) {
     updateRol(
       id: $id, 
@@ -79,8 +78,7 @@ const UPDATE_ROLE_MUTATION = `
       canDeleteItems: $canDeleteItems,
       canCreateClients: $canCreateClients,
       canUpdateClients: $canUpdateClients,
-      canDeleteClients: $canDeleteClients,
-      canViewAuditlogs: $canViewAuditlogs
+      canDeleteClients: $canDeleteClients
     ) {
       rol { id }
     }
@@ -108,7 +106,6 @@ const GET_ROLE_BY_ID_QUERY = `
       canUpdateClients
       canDeleteClients
       permissionCount
-      canViewAuditlogs
       userCount
       created
       modified

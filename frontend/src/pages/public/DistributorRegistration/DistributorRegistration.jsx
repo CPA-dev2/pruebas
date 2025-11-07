@@ -8,7 +8,7 @@ import { ChevronLeftIcon, ChevronRightIcon, CheckIcon } from '@chakra-ui/icons';
 import { FaUser, FaBuilding, FaFileAlt, FaUsers, FaUniversity, FaEye } from 'react-icons/fa';
 import DistributorService from '../../../services/DistributorService';
 import { showSuccess, handleError } from '../../../services/NotificationService';
-import { convertDocumentsToBase64, validateTotalFileSize } from '../../../utils/fileUtils';
+import {validateTotalFileSize } from '../../../utils/fileUtils';
 
 // Importar los componentes de cada paso (los crearemos después)
 import PersonalInfoStep from './steps/PersonalInfoStep';
@@ -143,11 +143,14 @@ const DistributorRegistration = () => {
       }
 
         
-      // Convertir documentos a base64
-      let documentosBase64 = [];
-      if (formData.documentos && formData.documentos.length > 0) {
-        documentosBase64 = await convertDocumentsToBase64(formData.documentos);
-      }
+      const documentos = formData.documentos && formData.documentos.length > 0
+        ? formData.documentos.map(doc => ({
+            tipoDocumento: doc.tipo,
+            archivoData: doc.archivo,  
+            nombreArchivo: doc.archivo.name
+          }))
+        : [];
+    
 
       // Preparar datos para la mutación GraphQL
       const distributorData = {
@@ -184,8 +187,8 @@ const DistributorRegistration = () => {
           relacion: ref.relacion
         })),
 
-        // Documentos (array de objetos con base64)
-        documentos: documentosBase64
+        // Documentos (array de objetos tipo fileUpload)
+        documentos: documentos
       };
 
       const response = await DistributorService.createDistributor(distributorData);

@@ -112,3 +112,44 @@ export const cleanupPreviewUrls = (documents) => {
     }
   });
 };
+
+export const graphqlMultipartRequest = (query, variables) => {
+  const operations = { query, variables: {} };
+  const map = {};
+  const formData = new FormData();
+  let fileIndex = 0;
+  
+  const processVariable = (value, path) => {
+    if (value instanceof File || value instanceof Blob) {
+      map[fileIndex] = [path];
+      formData.append(fileIndex.toString(), value);
+      fileIndex++;
+      return null;
+    }
+    
+    if (Array.isArray(value)) {
+      return value.map((item, index) => 
+        processVariable(item, `${path}.${index}`)  // ← Recursivo con índice
+      );
+    }
+    
+    if (value && typeof value === 'object') {
+      const processed = {};
+      for (const key in value) {
+        processed[key] = processVariable(value[key], `${path}.${key}`);
+      }
+      return processed;
+    }
+    
+    return value;
+  };
+  
+  for (const key in variables) {
+    operations.variables[key] = processVariable(variables[key], `variables.${key}`);
+  }
+  
+  formData.append('operations', JSON.stringify(operations));
+  formData.append('map', JSON.stringify(map));
+  
+  return formData;
+};

@@ -5,9 +5,9 @@ const apiUrl = import.meta.env.VITE_BACKEND_URL;
 
 const apiClient = axios.create({
   baseURL: apiUrl,
-  headers: {
-    "Content-Type": "application/json",
-  },
+ /*headers: {
+   "Content-Type": "application/json",
+ },*/
 });
 
 // 1. INTERCEPTOR DE PETICIONES: Se asegura de enviar el token en el formato correcto.

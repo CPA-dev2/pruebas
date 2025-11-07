@@ -292,7 +292,7 @@ def extract_rtu(pdf_path: str) -> Dict[str, Any]:
         raise FileNotFoundError(f"El archivo no existe: {pdf_path}")
     
     # Validar que es un PDF
-    if not pdf_path.lower().endswith('.pdf'):
+    if not str(pdf_path).lower().endswith('.pdf'):
         raise ValueError(f"El archivo no es un PDF: {pdf_path}")
     
     # 1) Texto para NIT y razón social
