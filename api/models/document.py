@@ -1,6 +1,6 @@
 from django.db import models
 
-from api.models import distributor
+from api.models import registration_request
 from .base_model import BaseModel
 
 class Document(BaseModel):
@@ -16,11 +16,11 @@ class Document(BaseModel):
         tipo_documento (str): El tipo de documento (ej. "Contrato", "Identificación").
         archivo (FileField): El archivo del documento.
     """
-    distribuidor = models.ForeignKey(
-        distributor.Distributor,
+    registration_request = models.ForeignKey(
+        registration_request.RegistrationRequest,
         on_delete=models.CASCADE,
         related_name="documentos",
-        help_text="Distribuidor asociado al documento."
+        help_text="Solicitud asociada al documento."
     )
     tipo_documento = models.CharField(
         max_length=100,
@@ -42,7 +42,7 @@ class Document(BaseModel):
         """
         Devuelve una representación en cadena del documento.
         """
-        return f"{self.tipo_documento} - {self.distribuidor.nombres}"
+        return f"{self.tipo_documento} - {self.registration_request.nombres}"
 
     class Meta:
         verbose_name = "Documento"

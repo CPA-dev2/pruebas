@@ -1,55 +1,70 @@
 # api/graphql/schema/distributor.py
 
-from logging import info
 import graphene
 from graphene import relay
 from graphene_django import DjangoObjectType
 from graphene_django.filter import DjangoFilterConnectionField
-from api.models import Distributor, Document, Reference, Location, Assignmentdistributor, Revisiondistributor
+from api.models import (
+    Distributor, Document, Reference, Location, 
+    Assignmentdistributor, Revisiondistributor
+)
 from ..filters import DistributorFilter
 from graphql import GraphQLError
 
 # --- Tipos de Nodos (Definidos al inicio) ---
+# Todos los sub-modelos se definen aquí como tipos de GraphQL
 
 class DocumentType(DjangoObjectType):
     """Tipo GraphQL para el modelo Document."""
     class Meta:
         model = Document
         fields = "__all__"
+        interfaces = (relay.Node,)
+        filter_fields = ['tipoDocumento', 'estado']
 
 class ReferenceType(DjangoObjectType):
     """Tipo GraphQL para el modelo Reference."""
     class Meta:
         model = Reference
         fields = "__all__"
+        interfaces = (relay.Node,)
+        filter_fields = ['estado']
 
 class LocationType(DjangoObjectType):
     """Tipo GraphQL para el modelo Location."""
     class Meta:
         model = Location
         fields = "__all__"
-        
+        interfaces = (relay.Node,)
+        filter_fields = ['estado', 'departamento', 'municipio']
+
 class AssignmentdistributorType(DjangoObjectType):
     """Tipo GraphQL para el modelo Assignmentdistributor."""
     class Meta:
         model = Assignmentdistributor
         fields = "__all__"
+        interfaces = (relay.Node,)
 
 class RevisiondistributorType(DjangoObjectType):
     """Tipo GraphQL para el modelo Revisiondistributor."""
     class Meta:
         model = Revisiondistributor
         fields = "__all__"
+        interfaces = (relay.Node,)
+        filter_fields = ['seccion', 'campo', 'aprobado']
 
 class DistributorNode(DjangoObjectType):
     """
-    Nodo de GraphQL que representa el modelo `Distributor`.
-    Este es el tipo principal para consultas de distribuidores.
+    Nodo de GraphQL que representa el modelo `Distributor` (Raíz del Agregado).
+    
+    Define 'resolvers' para sus relaciones anidadas, asegurando
+    que solo se devuelvan los objetos no eliminados.
     """
     documentos = graphene.List(DocumentType, description="Documentos asociados al distribuidor")
     referencias = graphene.List(ReferenceType, description="Referencias asociadas al distribuidor")
     locations = graphene.List(LocationType, description="Ubicaciones asociadas al distribuidor")
     revisions = graphene.List(RevisiondistributorType, description="Revisiones del distribuidor")
+    assignments = graphene.List(AssignmentdistributorType, description="Asignaciones del distribuidor")
 
     class Meta:
         model = Distributor
@@ -68,6 +83,9 @@ class DistributorNode(DjangoObjectType):
     def resolve_revisions(self, info):
         return self.revisions.filter(is_deleted=False)
 
+    def resolve_assignments(self, info):
+        return self.assignments.filter(is_deleted=False)
+
 # --- Lógica de Queryset Centralizada ---
 
 def get_distributor_queryset(info, view_type, **kwargs):
@@ -83,13 +101,11 @@ def get_distributor_queryset(info, view_type, **kwargs):
 
     base_qs = Distributor.objects.filter(is_deleted=False)
     
-    # Lógica para determinar el queryset basado en la vista (viewType)
+    # REFACTOR: Lógica de negocio consolidada basada en 'viewType'
     if view_type == "pending":
-        # Todos los 'pendientes' son visibles para usuarios con permiso
         qs = base_qs.filter(estado='pendiente')
     
     elif view_type == "my_revisions":
-        # Solo los 'revision' o 'correccion' asignados AL USUARIO ACTUAL
         qs = base_qs.filter(
             assignments__usuario=user,
             assignments__is_deleted=False,
@@ -97,7 +113,6 @@ def get_distributor_queryset(info, view_type, **kwargs):
         ).distinct()
         
     elif view_type == "my_validated":
-        # Solo los 'validado' asignados AL USUARIO ACTUAL
         qs = base_qs.filter(
             assignments__usuario=user,
             assignments__is_deleted=False,
@@ -105,19 +120,15 @@ def get_distributor_queryset(info, view_type, **kwargs):
         ).distinct()
         
     elif view_type == "approved":
-        # Todos los 'aprobado'
         qs = base_qs.filter(estado='aprobado')
         
     elif view_type == "rejected":
-        # Todos los 'rechazado'
         qs = base_qs.filter(estado='rechazado')
         
     else:
-        # Si el viewType no es válido, lanzamos un error.
         raise GraphQLError(f"Tipo de vista no válido: {view_type}")
 
-    # Aplicar filtros de búsqueda (search, tipoPersona, etc.)
-    # El filterset se encarga de manejar los kwargs (ej. search=..., tipo_persona=...)
+    # Aplica filtros de búsqueda (search, tipoPersona, etc.)
     filterset = DistributorFilter(
         data=kwargs,
         queryset=qs
@@ -130,15 +141,13 @@ class DistributorQuery(graphene.ObjectType):
     """
     Consultas de GraphQL para el modelo `Distributor`.
     
-    Estas queries están consolidadas y parametrizadas para manejar
-    todas las vistas de listado de distribuidores.
+    Consolida todas las queries de listado en `allDistributors`
+    y los conteos en `distributorsTotalCount` usando el argumento `viewType`.
     """
 
     all_distributors = DjangoFilterConnectionField(
         DistributorNode,
-        filterset_class=DistributorFilter, # Los filtros se definen aquí
-        
-        # REFACTOR: Se añade 'viewType' para controlar la lógica de negocio
+        filterset_class=DistributorFilter,
         view_type=graphene.String(
             required=True, 
             description="El tipo de vista (pestaña) a consultar. (ej. 'pending', 'my_revisions', 'approved')"
@@ -147,13 +156,12 @@ class DistributorQuery(graphene.ObjectType):
     )
 
     distributors_total_count = graphene.Int(
-        # Filtros estándar (deben coincidir con DistributorFilter)
-        search=graphene.String(description="Filtra por texto en negocio, nit o DPI."),
-        estado=graphene.String(description="Filtra por estado del distribuidor."),
-        tipo_persona=graphene.String(description="Filtra por tipo de persona."),
-        departamento=graphene.String(description="Filtra por departamento."),
+        # Filtros (deben coincidir con DistributorFilter)
+        search=graphene.String(),
+        estado=graphene.String(),
+        tipo_persona=graphene.String(),
+        departamento=graphene.String(),
         
-        # REFACTOR: 'viewType' es el argumento clave
         view_type=graphene.String(
             required=True, 
             description="El tipo de vista para el cual contar los resultados."
@@ -164,14 +172,20 @@ class DistributorQuery(graphene.ObjectType):
     distributor = relay.Node.Field(
         DistributorNode,
         description="Recupera un distribuidor específico por su ID global de Relay."
-    )   
+    )
+    
+    # Resolvers para acceder a sub-modelos por ID (útil para validación)
+    document = relay.Node.Field(DocumentType)
+    reference = relay.Node.Field(ReferenceType)
+    location = relay.Node.Field(LocationType)
+    revision = relay.Node.Field(RevisiondistributorType)
 
     def resolve_all_distributors(self, info, view_type, **kwargs):
         """
         Resuelve la consulta `all_distributors`.
         Delega la lógica de construcción del queryset a la función helper.
         """
-        # kwargs ya contiene 'first', 'after', 'search', 'tipo_persona', etc.
+        # El permiso se comprueba dentro de get_distributor_queryset
         return get_distributor_queryset(info, view_type, **kwargs)
 
     def resolve_distributors_total_count(self, info, view_type, **kwargs):
@@ -179,15 +193,10 @@ class DistributorQuery(graphene.ObjectType):
         Resuelve la consulta `distributors_total_count`.
         Delega la lógica y luego solo cuenta los resultados.
         """
-        # kwargs contiene 'search', 'tipo_persona', etc. (sin 'first' y 'after')
         qs = get_distributor_queryset(info, view_type, **kwargs)
         return qs.count()
     
     def resolve_distributor(self, info, id):
-        """
-        Resuelve la consulta `distributor` para obtener un distribuidor por su ID global.
-        Requiere autenticación.
-        """
         if not info.context.user.is_authenticated:
             raise GraphQLError("Debes estar autenticado para consultar un distribuidor.")
         

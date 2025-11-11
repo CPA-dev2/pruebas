@@ -1,6 +1,6 @@
 from django.db import models
 
-from api.models import distributor
+from api.models import registration_request
 from .base_model import BaseModel
 
 class Reference(BaseModel):
@@ -17,11 +17,11 @@ class Reference(BaseModel):
         telefono (str): El número de teléfono de la referencia.
         relacion (str): La relación de la referencia con el distribuidor.
     """
-    distribuidor = models.ForeignKey(
-        distributor.Distributor,
+    registration_request = models.ForeignKey(
+        registration_request.RegistrationRequest,
         on_delete=models.CASCADE,
-        related_name="referencias",
-        help_text="Distribuidor asociado a la referencia."
+        related_name="documentos",
+        help_text="Solicitud asociada a la referencia."
     )
     nombres = models.CharField(
         max_length=200,

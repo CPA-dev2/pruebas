@@ -4,7 +4,6 @@ import graphene
 from graphql import GraphQLError
 from graphql_relay import from_global_id
 from django.db import IntegrityError, transaction
-from django.db.models import Q
 from graphene_file_upload.scalars import Upload
 from django.core.files.base import ContentFile
 
@@ -14,6 +13,7 @@ from api.models import (
     Assignmentdistributor, Revisiondistributor
 )
 # REFACTOR: Importar los 'Types' y 'Nodes' del archivo de schema consolidado
+# Esto soluciona el error de importación circular.
 from ..schema.distributor import (
     DistributorNode,
     DocumentType,
@@ -104,7 +104,7 @@ class CreateDistributor(graphene.Mutation):
         documentos_data = kwargs.pop('documentos', [])
         
         try:
-            # La lógica de negocio está en el servicio para mantener el resolver limpio
+            # La lógica de negocio está en el servicio
             distributor = create_distributor(
                 data=kwargs,
                 referencias=referencias_data,
@@ -117,12 +117,9 @@ class CreateDistributor(graphene.Mutation):
 class UpdateDistributor(graphene.Mutation):
     """
     Mutación para actualizar los campos *principales* de un distribuidor.
-    (No actualiza relaciones, para eso usar las mutaciones específicas).
     """
     class Arguments:
         id = graphene.ID(required=True, description="ID Global del Distribuidor")
-        # ... (argumentos de CreateDistributor omitidos por brevedad,
-        # pero aquí irían todos los campos editables del formulario de edición)
         nombres = graphene.String()
         apellidos = graphene.String()
         dpi = graphene.String()
@@ -202,7 +199,7 @@ class AddDocumentToDistributor(graphene.Mutation):
                 distributor=distributor,
                 tipoDocumento=tipo_documento,
                 archivo=ContentFile(archivo_base.read(), name=nombre_archivo),
-                estado='pendiente' # Estado por defecto al subir
+                estado='pendiente'
             )
             return AddDocumentToDistributor(document=document)
         except Distributor.DoesNotExist:
@@ -220,12 +217,12 @@ class UpdateDocumentFromDistributor(graphene.Mutation):
     document = graphene.Field(DocumentType)
 
     def mutate(self, info, distributor_id, document_id, estado):
-        check_permission(info.context.user, "can_update_distributors") # O un permiso de validación
+        check_permission(info.context.user, "can_update_distributors")
         try:
             db_id = from_global_id(distributor_id)[1]
             doc_id = from_global_id(document_id)[1]
             
-            # MEJORA DE SEGURIDAD:
+            # MEJORA DE SEGURIDAD (Patrón Agregado):
             # Asegura que el documento pertenezca al distribuidor especificado
             document = Document.objects.get(
                 pk=doc_id, 
@@ -263,7 +260,7 @@ class DeleteDocumentFromDistributor(graphene.Mutation):
         except Document.DoesNotExist:
             raise GraphQLError("Documento no encontrado.")
 
-# --- Mutaciones de Referencias ---
+# --- Mutaciones de Referencias (Consolidadas) ---
 
 class AddReferenceToDistributor(graphene.Mutation):
     """Añade una nueva referencia a un distribuidor."""
@@ -307,15 +304,10 @@ class UpdateReferenceFromDistributor(graphene.Mutation):
                 is_deleted=False
             )
             
-            # Actualizar campos
-            if reference_input.nombres:
-                reference.nombres = reference_input.nombres
-            if reference_input.telefono:
-                reference.telefono = reference_input.telefono
-            if reference_input.relacion:
-                reference.relacion = reference_input.relacion
-            if reference_input.estado:
-                reference.estado = reference_input.estado
+            # Actualizar solo campos proporcionados
+            for key, value in reference_input.items():
+                if key != 'id' and value is not None:
+                    setattr(reference, key, value)
             
             reference.save()
             return UpdateReferenceFromDistributor(reference=reference)
@@ -346,7 +338,7 @@ class DeleteReferenceFromDistributor(graphene.Mutation):
         except Reference.DoesNotExist:
             raise GraphQLError("Referencia no encontrada.")
 
-# --- Mutaciones de Ubicaciones ---
+# --- Mutaciones de Ubicaciones (Consolidadas) ---
 
 class UpdateLocationFromDistributor(graphene.Mutation):
     """Actualiza una ubicación que PERTENECE a un distribuidor."""
@@ -368,7 +360,6 @@ class UpdateLocationFromDistributor(graphene.Mutation):
                 is_deleted=False
             )
             
-            # Actualizar campos (omitir 'id' del input)
             for key, value in location_input.items():
                 if key != 'id' and value is not None:
                     setattr(location, key, value)
@@ -402,7 +393,7 @@ class DeleteLocationFromDistributor(graphene.Mutation):
         except Location.DoesNotExist:
             raise GraphQLError("Ubicación no encontrada.")
 
-# --- Mutaciones de Flujo de Trabajo (Validación) ---
+# --- Mutaciones de Flujo de Trabajo (Consolidadas) ---
 
 class AssignDistributorToMe(graphene.Mutation):
     """
@@ -416,7 +407,6 @@ class AssignDistributorToMe(graphene.Mutation):
     distributor = graphene.Field(DistributorNode)
 
     def mutate(self, info, distributor_id):
-        # Aquí se podría usar un permiso específico como 'can_validate_distributors'
         check_permission(info.context.user, "can_update_distributors") 
         user = info.context.user
         
@@ -429,18 +419,16 @@ class AssignDistributorToMe(graphene.Mutation):
                     is_deleted=False
                 )
                 
-                # Cambiar estado y guardar
                 distributor.estado = 'revision'
                 distributor.save()
                 
-                # Crear la asignación
                 Assignmentdistributor.objects.create(
                     distributor=distributor,
                     usuario=user
                 )
                 
-                # Registrar en tracking
-                update_distributor(distributor, {'estado': 'revision'}) # Reusa la lógica del servicio
+                # Reusa la lógica del servicio para crear el tracking
+                update_distributor(distributor, {'estado': 'revision'})
                 
                 return AssignDistributorToMe(success=True, distributor=distributor)
         except Distributor.DoesNotExist:
@@ -486,7 +474,6 @@ class CreateRevisions(graphene.Mutation):
 class DistributorMutations(graphene.ObjectType):
     """
     Agrupa TODAS las mutaciones relacionadas con el Agregado 'Distributor'.
-    Esto reemplaza a los archivos separados 'documents.py', 'references.py', etc.
     """
     # Mutaciones Principales
     create_distributor = CreateDistributor.Field()
@@ -510,5 +497,3 @@ class DistributorMutations(graphene.ObjectType):
     # Mutaciones de Ubicaciones
     update_location_from_distributor = UpdateLocationFromDistributor.Field()
     delete_location_from_distributor = DeleteLocationFromDistributor.Field()
-    
-    # ... (Aquí irían las de Revisions si se necesitan Update/Delete individuales)

@@ -1,6 +1,6 @@
 from django.db import models
 
-from api.models import distributor
+from api.models import registration_request
 from .base_model import BaseModel
 
 class Revisiondistributor(BaseModel):
@@ -16,11 +16,11 @@ class Revisiondistributor(BaseModel):
         comentarios (TextField): Comentarios sobre la revisión del distribuidor.
         aprobado (BooleanField): Indica si el distribuidor fue aprobado en la revisión.
     """
-    distribuidor = models.ForeignKey(
-        distributor.Distributor,
+    registration_request = models.ForeignKey(
+        registration_request.RegistrationRequest,
         on_delete=models.CASCADE,
-        related_name="revisions",
-        help_text="Distribuidor asociado a la revisión."
+        related_name="documentos",
+        help_text="Solicitud asociada a la referencia."
     )
     seccion = models.CharField(
         max_length=100,
@@ -46,8 +46,8 @@ class Revisiondistributor(BaseModel):
         Devuelve una representación en cadena de la revisión del distribuidor.
         """
 
-        return f"Revisión de {self.distribuidor.negocio_nombre} - {self.distribuidor.estado}"
+        return f"Revisión de {self.registration_request.negocio_nombre} - {self.registration_request.estado}"
 
     class Meta:
-        verbose_name = "Revisión Distributor"
-        verbose_name_plural = "Revisiones Distributors"
+        verbose_name = "Revisión de Solicitud Distributor"
+        verbose_name_plural = "Revisiones de Solicitudes Distributores"

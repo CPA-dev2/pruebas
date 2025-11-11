@@ -1,6 +1,6 @@
 from django.db import models
 
-from api.models import distributor
+from api.models import registration_request
 from .base_model import BaseModel
 
 class Location(BaseModel):
@@ -18,11 +18,11 @@ class Location(BaseModel):
         direccion (str): La dirección física de la ubicación.
         telefono (str): El número de teléfono de la ubicación.
     """
-    distribuidor = models.ForeignKey(
-        distributor.Distributor,
+    registration_request = models.ForeignKey(
+        registration_request.RegistrationRequest,
         on_delete=models.CASCADE,
-        related_name="locations",
-        help_text="Distribuidor asociado a la ubicación."
+        related_name="documentos",
+        help_text="Solicitud asociada al documento."
     )
     nombre = models.CharField(
         max_length=200,

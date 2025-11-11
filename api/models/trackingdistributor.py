@@ -1,6 +1,6 @@
 from django.db import models
 
-from api.models import distributor
+from api.models import registration_request
 from .base_model import BaseModel
 
 
@@ -17,11 +17,11 @@ class Trackingdistributor(BaseModel):
         estado (str): El estado actual del distribuidor (ej. "Activo", "Inactivo").
         notas (TextField): Notas adicionales sobre el distribuidor.
     """
-    distribuidor = models.ForeignKey(
-        distributor.Distributor,
+    registration_request = models.ForeignKey(
+        registration_request.RegistrationRequest,
         on_delete=models.CASCADE,
-        related_name="trackingdistributors",
-        help_text="Distribuidor asociado al seguimiento."
+        related_name="documentos",
+        help_text="Solicitud asociada a la referencia."
     )
     estado = models.CharField(
         max_length=50,
@@ -36,8 +36,8 @@ class Trackingdistributor(BaseModel):
         """
         Devuelve una representación en cadena del seguimiento del distribuidor.
         """
-        return f"Tracking de {self.distribuidor.negocio_nombre} - {self.estado}"
+        return f"Tracking de {self.registration_request.negocio_nombre} - {self.estado}"
 
     class Meta:
-        verbose_name = "Tracking Distributor"
-        verbose_name_plural = "Tracking Distributors"
+        verbose_name = "Tracking Solicitud"
+        verbose_name_plural = "Tracking Solicitudes"
