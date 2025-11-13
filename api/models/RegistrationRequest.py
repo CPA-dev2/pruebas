@@ -15,13 +15,15 @@ class RegistrationRequest(BaseModel):
     """
     
     class Estado(models.TextChoices):
-        NUEVO = 'nuevo', 'Nuevo (RTU pendiente de procesar)'
-        PENDIENTE = 'pendiente', 'Pendiente de Asignación'
-        REVISION = 'revision', 'En Revisión'
-        VALIDADO = 'validado', 'Validado (Listo para aprobar)'
-        APROBADO = 'aprobado', 'Aprobado (Convertido en Distribuidor)'
+        PROCESANDO_DOCUMENTOS = 'procesando_documentos', 'Procesando Documentos (OCR)'
+        PENDIENTE_ASIGNACION = 'pendiente_asignacion', 'Pendiente de Asignación'
+        ASIGNADA = 'asignada', 'Asignada'
+        EN_REVISION = 'en_revision', 'En Revisión'
+        PENDIENTE_CORRECCIONES = 'pendiente_correcciones', 'Pendiente de Correcciones'
+        PENDIENTE_APROBACION = 'pendiente_aprobacion', 'Pendiente de Aprobación (Enviado a autorizar)'
+        APROBADO = 'aprobado', 'Aprobado (Distribuidor creado)'
         RECHAZADO = 'rechazado', 'Rechazado'
-        ERROR_RTU = 'error_rtu', 'Error en RTU'
+        ERROR_OCR = 'error_ocr', 'Error en OCR'
 
     # --- Información Personal ---
     nombres = models.CharField(max_length=255)
@@ -58,21 +60,25 @@ class RegistrationRequest(BaseModel):
     estado = models.CharField(
         max_length=50,
         choices=Estado.choices,
-        default=Estado.NUEVO,
+        default=Estado.PROCESANDO_DOCUMENTOS,
         db_index=True,
         help_text="Estado de la solicitud en el flujo de aprobación."
     )
-    asignado_a = models.ForeignKey(
+    assignment_key = models.ForeignKey(
             Usuario,
             on_delete=models.SET_NULL,
             null=True,
             blank=True,
             related_name="solicitudes_asignadas",
-            help_text="El usuario revisor que tiene asignada esta solicitud."
+            help_text="El colaborador revisor que tiene asignada esta solicitud."
+    )
+    observaciones = models.TextField(
+        blank=True,
+        help_text="Observaciones o correcciones solicitadas por el revisor."
     )
    
     def __str__(self):
-        return f"Solicitud de {self.nombres} {self.apellidos} ({self.dpi}) - {self.estado}"
+        return f"Solicitud de {self.nombres} {self.apellidos} ({self.dpi}) - {self.get_estado_display()}"
 
     class Meta:
         verbose_name = "Solicitud de Registro"

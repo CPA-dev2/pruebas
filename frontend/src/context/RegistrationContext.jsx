@@ -36,7 +36,11 @@ const initialValues = {
   tipoCuenta: '',
   banco: '',
   // Relaciones
-  referencias: [{ nombres: '', telefono: '', relacion: '' }],
+  referencias: [
+    { nombres: '', telefono: '', relacion: '' },
+    { nombres: '', telefono: '', relacion: '' },
+    { nombres: '', telefono: '', relacion: '' },
+  ],
   // Documentos (ahora `null`, no strings Base64)
   documentos: {
     [DOCUMENT_TYPES.DPI_FRONTAL]: null,

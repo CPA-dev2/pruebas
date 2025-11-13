@@ -4,7 +4,8 @@ from .graphql.schema.items import ItemQuery
 from .graphql.schema.users import UserQuery
 from .graphql.schema.roles import RolQuery 
 from .graphql.schema.clients import ClientQuery
-from .graphql.schema.distributor import DistributorQuery 
+from .graphql.schema.distributor import DistributorQuery
+from .graphql.schema.registration_request import RegistrationRequestQuery
 from .graphql.schema.trackingdistributors_table import DistributorsTrackingTableQuery
 from .graphql.schema.auditlogs import AuditlogQuery
 from .graphql.mutations.items import ItemMutations
@@ -22,6 +23,7 @@ class Query(
     AuditlogQuery, 
     ClientQuery, 
     DistributorQuery,
+    RegistrationRequestQuery,
     DistributorsTrackingTableQuery,
     graphene.ObjectType):
     """

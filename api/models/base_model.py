@@ -40,3 +40,6 @@ class BaseModel(models.Model):
         autorizado.
         """
         super().delete(using=using, keep_parents=keep_parents)
+
+    class Meta:
+        abstract = True

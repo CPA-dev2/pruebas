@@ -22,7 +22,7 @@ from api.utils.distributors.validators import (
     validate_all_pending
 )
 # Se importa la tarea de Celery para lanzarla
-from api.tasks import process_rtu_for_request
+from api.tasks import process_documents_ocr
 
 # --- Helpers Internos (reutilizables dentro de este servicio) ---
 
@@ -161,23 +161,23 @@ def create_registration_request(data: Dict[str, Any],
                                 files: Dict[str, UploadedFile]
                                ) -> RegistrationRequest:
     """
-    Crea una nueva Solicitud de Registro (Paso 1: Sincrónico y Rápido).
+    Crea una nueva Solicitud de Registro.
     
-    Valida los datos JSON, guarda los archivos físicos y lanza la tarea
-    asíncrona (Celery) para el procesamiento pesado del RTU.
-    Responde instantáneamente a la API.
+    Este es el punto de entrada principal. Valida los datos, guarda la solicitud
+    con un estado inicial de 'procesando_documentos', y lanza una tarea asíncrona
+    de Celery para el OCR de los documentos.
 
     Args:
-        data: Diccionario con los datos del formulario (personales, negocio, etc.).
+        data: Diccionario con los datos del formulario.
         referencias: Lista de diccionarios con datos de referencias.
-        files: Diccionario de objetos UploadedFile (multipart/form-data).
+        files: Diccionario de archivos subidos.
 
     Returns:
-        RegistrationRequest: La nueva instancia de solicitud creada (en estado 'nuevo').
+        RegistrationRequest: La instancia de la solicitud creada.
     
     Raises:
-        ValidationError: Si faltan campos, no hay suficientes referencias,
-                         faltan documentos o hay un error de guardado.
+        ValidationError: Si faltan datos, no hay suficientes referencias,
+                         o si los documentos son inválidos.
     """
     try:
         # 1. Validar datos JSON
@@ -187,9 +187,9 @@ def create_registration_request(data: Dict[str, Any],
             "productos_distribuidos", "tipo_persona"
         ]
         ensure_required_fields(data, required_fields)
-        ensure_at_least_n_refs(referencias, n=2)
+        ensure_at_least_n_refs(referencias, n=3)
 
-        # 2. Crear la Solicitud en estado 'NUEVO'
+        # 2. Crear la Solicitud en estado inicial
         request_obj = RegistrationRequest.objects.create(
             nombres=data["nombres"],
             apellidos=data["apellidos"],
@@ -209,7 +209,7 @@ def create_registration_request(data: Dict[str, Any],
             numero_cuenta=data.get("numero_cuenta"),
             tipo_cuenta=data.get("tipo_cuenta"),
             banco=data.get("banco"),
-            estado=RegistrationRequest.Estado.NUEVO,
+            estado=RegistrationRequest.Estado.PROCESANDO_DOCUMENTOS,
         )
 
         # 3. Crear Referencias
@@ -224,11 +224,15 @@ def create_registration_request(data: Dict[str, Any],
         # 4. Guardar Archivos y obtener el RTU
         rtu_document = _persist_documents(request_obj, files)
 
-        # 5. Lanzar Tarea Asíncrona (RTU)
-        process_rtu_for_request.delay(request_obj.id)
+        # 5. Lanzar Tarea Asíncrona para OCR
+        process_documents_ocr.delay(request_obj.id)
 
         # 6. Tracking inicial
-        _create_tracking(request_obj, "nuevo", "Solicitud recibida. RTU en cola de procesamiento.")
+        _create_tracking(
+            request_obj,
+            request_obj.estado,
+            "Solicitud recibida. Documentos en cola para procesamiento OCR."
+        )
 
         return request_obj
     except Exception as e:
@@ -283,146 +287,124 @@ def approve_registration_request(request_id: int, user: Usuario) -> Distributor:
 # --- Servicios de Flujo de Aprobación (Refactorizados) ---
 
 @transaction.atomic
-def assign_registration_request(request_id: int, user: Usuario) -> RegistrationRequest:
+def assign_registration_request(request_id: int, assignee_id: int, assigner_user: Usuario) -> RegistrationRequest:
     """
-    Asigna una solicitud de registro a un usuario (revisor).
-    Cambia el estado de 'pendiente' a 'revision'.
+    Asigna una solicitud de registro a un colaborador para su revisión.
+    Cambia el estado de 'pendiente_asignacion' a 'asignada'.
 
     Args:
         request_id: El ID de la solicitud a asignar.
-        user: El usuario al que se le asignará la solicitud.
+        assignee_id: El ID del colaborador que revisará la solicitud.
+        assigner_user: El usuario (admin/supervisor) que realiza la asignación.
 
     Returns:
         RegistrationRequest: La solicitud actualizada.
     
     Raises:
-        ValidationError: Si la solicitud no está en estado 'pendiente'
-                         o si ya está asignada.
+        ValidationError: Si la solicitud o el usuario no existen, si no está
+                         en el estado correcto, o si ya está asignada.
+    """
+    try:
+        request_obj = RegistrationRequest.objects.get(pk=request_id)
+        assignee = Usuario.objects.get(pk=assignee_id)
+    except (RegistrationRequest.DoesNotExist, Usuario.DoesNotExist):
+        raise ValidationError("Solicitud o usuario no encontrado.")
+
+    validate_state_transition(request_obj.estado, RegistrationRequest.Estado.ASIGNADA)
+    
+    if request_obj.assignment_key is not None:
+        raise ValidationError(f"La solicitud ya está asignada a {request_obj.assignment_key.username}.")
+        
+    # Asignar y cambiar estado
+    request_obj.assignment_key = assignee
+    request_obj.estado = RegistrationRequest.Estado.ASIGNADA
+    request_obj.save(update_fields=['assignment_key', 'estado'])
+
+    _create_tracking(
+        request_obj,
+        request_obj.estado,
+        f"Solicitud asignada a {assignee.username} por {assigner_user.username}.",
+        assigner_user
+    )
+    return request_obj
+
+@transaction.atomic
+def submit_review(request_id: int, observaciones: str, user: Usuario) -> RegistrationRequest:
+    """
+    El revisor envía correcciones/observaciones al solicitante.
+    Cambia el estado a 'pendiente_correcciones'.
     """
     try:
         request_obj = RegistrationRequest.objects.get(pk=request_id)
     except RegistrationRequest.DoesNotExist:
         raise ValidationError("Solicitud no encontrada.")
 
-    if request_obj.estado != RegistrationRequest.Estado.PENDIENTE:
-        raise ValidationError("La solicitud solo puede asignarse si está en estado 'pendiente'.")
-    
-    if request_obj.asignado_a is not None:
-        raise ValidationError(f"La solicitud ya está asignada a {request_obj.asignado_a.username}.")
-        
-    # Asignar y cambiar estado
-    request_obj.asignado_a = user
-    request_obj.estado = RegistrationRequest.Estado.REVISION
-    request_obj.save(update_fields=['asignado_a', 'estado'])
+    if request_obj.assignment_key != user:
+        raise PermissionDenied("No tienes permiso para revisar esta solicitud.")
+
+    validate_state_transition(request_obj.estado, RegistrationRequest.Estado.PENDIENTE_CORRECCIONES)
+
+    request_obj.observaciones = observaciones
+    request_obj.estado = RegistrationRequest.Estado.PENDIENTE_CORRECCIONES
+    request_obj.save(update_fields=['observaciones', 'estado'])
 
     _create_tracking(
         request_obj,
-        RegistrationRequest.Estado.REVISION,
-        f"Solicitud asignada a {user.username} para revisión.",
+        request_obj.estado,
+        f"El revisor {user.username} solicitó correcciones.",
         user
     )
     return request_obj
 
 @transaction.atomic
-def create_registration_revision(request_id: int, revisions_data: List[Dict], user: Usuario) -> List[RegistrationRevision]:
+def resubmit_request(request_id: int) -> RegistrationRequest:
     """
-    Crea una o más observaciones (revisiones) para una solicitud.
-    
-    Args:
-        request_id: El ID de la solicitud.
-        revisions_data: Lista de diccionarios con los datos de la revisión.
-        user: El usuario (revisor) que crea las revisiones.
-    
-    Returns:
-        List[RegistrationRevision]: Las revisiones creadas.
-        
-    Raises:
-        PermissionDenied: Si el usuario no es el asignado a la solicitud.
-        ValidationError: Si faltan datos en la revisión.
+    El solicitante reenvía la solicitud tras realizar correcciones.
+    Cambia el estado a 'en_revision'.
     """
     try:
         request_obj = RegistrationRequest.objects.get(pk=request_id)
     except RegistrationRequest.DoesNotExist:
         raise ValidationError("Solicitud no encontrada.")
 
-    if request_obj.asignado_a != user:
-        raise PermissionDenied("No tienes esta solicitud asignada para crear revisiones.")
-    
-    if not revisions_data:
-        raise ValidationError("Se requiere al menos una revisión.")
+    validate_state_transition(request_obj.estado, RegistrationRequest.Estado.EN_REVISION)
 
-    revisions_created = []
-    for rev in revisions_data:
-        ensure_required_fields(rev, ["seccion", "campo"])
-        revision = RegistrationRevision.objects.create(
-            registration_request=request_obj,
-            seccion=rev.get("seccion"),
-            campo=rev.get("campo"),
-            comentarios=rev.get("comentarios", "")
-            # created_by=user (si el modelo lo soporta)
-        )
-        revisions_created.append(revision)
+    request_obj.estado = RegistrationRequest.Estado.EN_REVISION
+    request_obj.save(update_fields=['estado'])
 
     _create_tracking(
         request_obj,
-        RegistrationRequest.Estado.REVISION,
-        f"Se agregaron {len(revisions_created)} nuevas observaciones por {user.username}.",
-        user
+        request_obj.estado,
+        "El solicitante ha reenviado la solicitud con correcciones."
     )
+    return request_obj
 
-    return revisions_created
-    
 @transaction.atomic
-def update_registration_revision_status(revision_id: int, data: Dict, user: Usuario) -> RegistrationRevision:
+def send_to_approval(request_id: int, user: Usuario) -> RegistrationRequest:
     """
-    Actualiza una revisión (ej. la marca como aprobada).
-    Si es la última revisión pendiente, actualiza el estado de la solicitud a 'validado'.
-
-    Args:
-        revision_id: El ID de la revisión a actualizar.
-        data: Diccionario con los campos a actualizar (ej. {'aprobado': True}).
-        user: El usuario que realiza la acción.
-
-    Returns:
-        RegistrationRevision: La revisión actualizada.
-        
-    Raises:
-        PermissionDenied: Si el usuario no es el asignado.
-        ValidationError: Si la revisión no se encuentra.
+    El revisor considera que todo está correcto y lo envía para aprobación final.
+    Cambia el estado a 'pendiente_aprobacion'.
     """
     try:
-        revision = RegistrationRevision.objects.get(pk=revision_id)
-    except RegistrationRevision.DoesNotExist:
-        raise ValidationError("Revisión no encontrada.")
+        request_obj = RegistrationRequest.objects.get(pk=request_id)
+    except RegistrationRequest.DoesNotExist:
+        raise ValidationError("Solicitud no encontrada.")
 
-    if revision.registration_request.asignado_a != user:
-        raise PermissionDenied("No tienes esta solicitud asignada para modificar revisiones.")
+    if request_obj.assignment_key != user:
+        raise PermissionDenied("No tienes permiso para enviar a aprobación esta solicitud.")
 
-    # Actualizar campos
-    updatable_fields = ['aprobado', 'seccion', 'campo', 'comentarios']
-    for field in updatable_fields:
-        if field in data and data[field] is not None:
-            setattr(revision, field, data[field])
-    revision.save()
+    validate_state_transition(request_obj.estado, RegistrationRequest.Estado.PENDIENTE_APROBACION)
 
-    # Si se acaba de aprobar, verificar si ya no quedan pendientes
-    if data.get('aprobado') is True:
-        try:
-            # `validate_all_pending` lanza un error si algo sigue pendiente
-            validate_all_pending(revision.registration_request, revision=revision)
-            
-            # Si no hay error, todo está aprobado. Cambiamos el estado a 'validado'.
-            revision.registration_request.estado = RegistrationRequest.Estado.VALIDADO
-            revision.registration_request.save(update_fields=['estado'])
-            
-            _create_tracking(
-                revision.registration_request,
-                RegistrationRequest.Estado.VALIDADO,
-                "Todas las revisiones, documentos y referencias han sido aprobados. Listo para aprobación final.",
-                user
-            )
-        except ValidationError:
-            # Aún quedan pendientes, no hacemos nada.
-            pass
-            
-    return revision
+    # Opcional: Validar que no queden documentos o referencias en estado 'rechazado'
+    # validate_all_pending(request_obj)
+
+    request_obj.estado = RegistrationRequest.Estado.PENDIENTE_APROBACION
+    request_obj.save(update_fields=['estado'])
+
+    _create_tracking(
+        request_obj,
+        request_obj.estado,
+        f"Revisor {user.username} envió la solicitud para aprobación final.",
+        user
+    )
+    return request_obj

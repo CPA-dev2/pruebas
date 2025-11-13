@@ -4,6 +4,7 @@ from django.test import Client
 from api.models import Usuario, Rol, Item, Distributor
 from api.models import Client as ClientModel
 from graphql_relay import to_global_id
+from .factories import UserFactory, RegistrationRequestFactory
 
 
 @pytest.fixture
@@ -319,3 +320,17 @@ def auditlog_sample(usuario_admin):
         accion="Creación de Item",
         descripcion="Item de prueba creado para testing"
     )
+
+# --- Registro de Factories para Pytest ---
+
+pytest_plugins = (
+    "api.tests.factories",
+)
+
+@pytest.fixture
+def user_factory():
+    return UserFactory
+
+@pytest.fixture
+def registration_request_factory():
+    return RegistrationRequestFactory

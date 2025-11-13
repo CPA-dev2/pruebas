@@ -1,52 +1,134 @@
-from __future__ import annotations
+"""
+Módulo de Extracción de Contenido y OCR.
+
+Este módulo centraliza todas las operaciones de bajo nivel para extraer
+información de archivos, ya sea texto vectorial de PDFs o texto a través
+de OCR de imágenes.
+"""
 import re
 import os
 from typing import List, Dict, Any, Optional
 
-# Dependencias recomendadas
 import pdfplumber
 import fitz  # PyMuPDF
 import numpy as np
 import cv2
 
 try:
-    import camelot  # opcional (tablas)
-except Exception:
-    camelot = None
-
-try:
-    import pytesseract  # opcional (OCR)
-except Exception:
+    import pytesseract
+except ImportError:
     pytesseract = None
 
 
-# ========= Regex base =========
-NIT_REGEX = re.compile(
-    r"(?:N[\.\s]*I[\.\s]*T[\.\s]*[:\-]?\s*)(\d{6,12})(?:[-–—\s]?(\d)?)?",
-    re.IGNORECASE
-)
-RAZON_REGEXES = [
-    re.compile(r"(?:Raz[oó]n\s+o\s+denominación\s+social|Nombre\s+del\s+Contribuyente)\s*:\s*(.+)", re.I),
-    re.compile(r"(?:Contribuyente)\s*:\s*(.+)", re.I),
-]
+# --- Funciones de Extracción de Texto ---
 
-# Campos típicos del bloque de establecimiento
-FIELD_RX = {
-    "nombre_comercial": r"(?:Nombre\s+Comercial)\s*:\s*(?P<val>.+)",
-    "numero_establecimiento": r"(?:N[uú]mero\s+de\s+secuencia\s+de\s+establecimiento)\s*:\s*(?P<val>\d+)",
-    "actividad_economica": r"(?:Actividad\s+econ[oó]mica\s+por\s+establecimiento)\s*:\s*(?P<val>.+)",
-    "fecha_inicio": r"(?:Fecha\s+Inicio\s+de\s+Operaciones)\s*:\s*(?P<val>[\d/.-]+)",
-    "estado": r"(?:Estado\s+del\s+establecimiento)\s*:\s*(?P<val>[A-ZÁÉÍÓÚÑ]+)",
-    "clasificacion": r"(?:Clasificaci[oó]n\s+por\s+establecimiento)\s*:\s*(?P<val>[A-ZÁÉÍÓÚÑ]+)",
-    "tipo": r"(?:Tipo\s+de\s+establecimiento)\s*:\s*(?P<val>[A-ZÁÉÍÓÚÑ]+)",
-}
+def extract_text_from_pdf(pdf_path: str) -> str:
+    """
+    Intenta extraer texto vectorial de un PDF. Es rápido y preciso
+    para PDFs generados digitalmente.
+    """
+    text = ""
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+    except Exception as e:
+        print(f"Error extrayendo texto vectorial: {e}")
+    return text
 
-# Delimitadores de bloque para 1..N establecimientos
-BLOCK_START_HINTS = [
-    r"ÚLTIMO\s+ESTABLECIMIENTO\s+REGISTRADO.*",
-    r"ESTABLECIMIENTOS\s+REGISTRADOS.*",
-    r"ESTABLECIMIENTO\s+#?\s*\d+",
-]
+def ocr_image(image_path: str) -> str:
+    """
+    Realiza OCR en una imagen utilizando Tesseract.
+    """
+    if pytesseract is None:
+        raise ImportError("Pytesseract no está instalado.")
+
+    try:
+        img = cv2.imread(image_path)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # Binarización para mejorar el contraste
+        _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+
+        custom_config = r'--oem 3 --psm 6'
+        text = pytesseract.image_to_string(thresh, lang='spa', config=custom_config)
+        return text
+    except Exception as e:
+        print(f"Error en OCR: {e}")
+        return ""
+
+def extract_text_from_file(file_path: str) -> str:
+    """
+    Función principal que extrae texto de un archivo.
+    - Si es PDF, intenta primero con texto vectorial. Si no es suficiente,
+      convierte a imagen y hace OCR.
+    - Si es imagen (png, jpg), hace OCR directamente.
+    """
+    _, extension = os.path.splitext(file_path)
+    extension = extension.lower()
+
+    if extension == '.pdf':
+        text = extract_text_from_pdf(file_path)
+        # Si el texto vectorial es muy corto, probablemente sea un PDF escaneado
+        if len(text.strip()) < 100:
+            try:
+                doc = fitz.open(file_path)
+                full_ocr_text = ""
+                for page in doc:
+                    pix = page.get_pixmap(dpi=300)
+                    img_bytes = pix.tobytes("png")
+                    nparr = np.frombuffer(img_bytes, np.uint8)
+                    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+                    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+
+                    custom_config = r'--oem 3 --psm 6'
+                    full_ocr_text += pytesseract.image_to_string(thresh, lang='spa', config=custom_config) + "\n"
+                text = full_ocr_text
+            except Exception as e:
+                print(f"Error en el fallback a OCR para PDF: {e}")
+        return text
+    elif extension in ['.png', '.jpg', '.jpeg', '.tiff']:
+        return ocr_image(file_path)
+    else:
+        raise ValueError(f"Formato de archivo no soportado: {extension}")
+
+
+# --- Funciones de Extracción Específicas por Documento ---
+
+def extract_dpi_data(text: str) -> Dict[str, Optional[str]]:
+    """Extrae Nombres, Apellidos y CUI/DPI de un texto de DPI."""
+    data = {"nombres": None, "apellidos": None, "dpi": None}
+
+    # Regex para CUI (DPI)
+    dpi_regex = re.compile(r'\b(\d{4}\s?\d{5}\s?\d{4})\b')
+    match = dpi_regex.search(text)
+    if match:
+        data["dpi"] = match.group(1).replace(" ", "")
+
+    # Regex para Nombres y Apellidos
+    # Esto es un desafío, se asume un formato común
+    lines = text.split('\n')
+    for i, line in enumerate(lines):
+        if "Nombres" in line or "NOMBRE" in line:
+            if i + 1 < len(lines):
+                data["nombres"] = lines[i+1].strip()
+        if "Apellidos" in line or "APELLIDO" in line:
+            if i + 1 < len(lines):
+                data["apellidos"] = lines[i+1].strip()
+
+    return data
+
+def extract_patente_data(text: str) -> Dict[str, Optional[str]]:
+    """Extrae Razón Social y Nombre Comercial de una Patente de Comercio."""
+    data = {"razon_social": None, "nombre_comercial": None}
+
+    # Lógica de extracción para Patente de Comercio
+    # (implementar con regex según el formato de la patente)
+
+    return data
 BLOCK_END_HINTS = [
     r"DATOS\s+DEL\s+CONTADOR",
     r"DATOS\s+DEL\s+REPRESENTANTE",
@@ -62,44 +144,6 @@ def _norm(s: Optional[str]) -> Optional[str]:
     if s is None:
         return None
     return re.sub(r"\s+", " ", s.strip())
-
-
-def _extract_text_pdf_first(pdf_path: str) -> str:
-    """Texto: primero vectorial; si no alcanza, OCR."""
-    chunks = []
-    try:
-        with pdfplumber.open(pdf_path) as pdf:
-            for p in pdf.pages:
-                t = p.extract_text() or ""
-                if t.strip():
-                    chunks.append(t)
-    except Exception as e:
-        print(f"⚠️ Error extrayendo texto vectorial: {e}")
-
-    text = "\n".join(chunks)
-    if len(text) >= 200:  # umbral simple
-        return text
-
-    # Fallback OCR solo si pytesseract está disponible
-    if pytesseract is None:
-        print("⚠️ pytesseract no disponible, no se puede hacer OCR")
-        return text
-        
-    ocr = []
-    try:
-        doc = fitz.open(pdf_path)
-        for page in doc:
-            pix = page.get_pixmap(dpi=350)
-            img = np.frombuffer(pix.tobytes("png"), dtype=np.uint8)
-            img = cv2.imdecode(img, cv2.IMREAD_COLOR)
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            thr = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
-                                        cv2.THRESH_BINARY, 31, 10)
-            ocr.append(pytesseract.image_to_string(thr, lang="spa", config="--oem 3 --psm 6"))
-    except Exception as e:
-        print(f"⚠️ Error en OCR: {e}")
-
-    return "\n".join(ocr) if ocr else text
 
 
 def _extract_nit_and_razon(text: str) -> tuple[Optional[str], Optional[str]]:
@@ -269,38 +313,36 @@ def _extract_establecimientos_from_text(text: str) -> List[Dict[str, Any]]:
 
 
 # ========= API pública =========
-def extract_rtu(pdf_path: str) -> Dict[str, Any]:
+def extract_rtu_data(file_path: str) -> Dict[str, Any]:
     """
-    Extrae información de un PDF de RTU (Registro Tributario Unificado).
+    Extrae información de un archivo de RTU (Registro Tributario Unificado).
     
     Argumento:
-        pdf_path: str (ruta absoluta o relativa del PDF ya guardado)
+        file_path: str (ruta absoluta o relativa del archivo ya guardado)
         
     Retorna:
         {
           "nit": str|None,
           "razon_social": str|None,
-          "establecimientos": [ { ... }, ... ]   # 0..N
+          "establecimientos": [ { ... }, ... ]
         }
         
     Raises:
         FileNotFoundError: Si el archivo no existe
-        ValueError: Si el archivo no es un PDF válido
+        ValueError: Si el formato de archivo no es soportado
     """
-    # Validar que el archivo existe
-    if not os.path.exists(pdf_path):
-        raise FileNotFoundError(f"El archivo no existe: {pdf_path}")
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"El archivo no existe: {file_path}")
     
-    # Validar que es un PDF
-    if not str(pdf_path).lower().endswith('.pdf'):
-        raise ValueError(f"El archivo no es un PDF: {pdf_path}")
-    
-    # 1) Texto para NIT y razón social
-    text = _extract_text_pdf_first(pdf_path)
+    # 1) Extraer texto del archivo (PDF o imagen)
+    text = extract_text_from_file(file_path)
     nit, razon = _extract_nit_and_razon(text)
 
-    # 2) Establecimientos: tablas -> texto/bloques
-    establecimientos = _extract_tables_camelot(pdf_path)
+    # 2) Establecimientos: tablas (solo si es PDF) -> texto/bloques
+    establecimientos = []
+    if file_path.lower().endswith('.pdf'):
+        establecimientos = _extract_tables_camelot(file_path)
+
     if not establecimientos:
         establecimientos = _extract_establecimientos_from_text(text)
 

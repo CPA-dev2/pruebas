@@ -33,11 +33,13 @@ def validate_document_payload(tipo: str, nombre: str):
 
 # Máquina de estados para la validación de transiciones de estado
 ALLOWED = {
-    "nuevo": {"pendiente", "error_rtu"},
-    "pendiente": {"revision"},
-    "revision": {"validado", "rechazado"},
-    "validado": {"aprobado", "rechazado", "revision"},
-    "error_rtu": {"pendiente"}, # Requiere corrección manual y re-procesamiento
+    "procesando_documentos": {"pendiente_asignacion", "error_ocr"},
+    "pendiente_asignacion": {"asignada"},
+    "asignada": {"en_revision", "pendiente_correcciones"},
+    "en_revision": {"pendiente_correcciones", "pendiente_aprobacion", "rechazado"},
+    "pendiente_correcciones": {"en_revision"},
+    "pendiente_aprobacion": {"aprobado", "rechazado"},
+    "error_ocr": {"pendiente_asignacion"}, # Permite re-asignar para revisión manual
     "aprobado": set(),
     "rechazado": set(),
 }
@@ -53,17 +55,6 @@ def validate_state_transition(old: str, new: str):
         raise ValidationError(f"Transición de estado inválida: {old} -> {new}")
 
 # --- Funciones auxiliares para verificar pendientes ---
-
-def validate_revision_pending(request_obj: RegistrationRequest, revision=None) -> bool:
-    """Verifica si hay revisiones pendientes, opcionalmente excluyendo la actual."""
-    qs = RegistrationRevision.objects.filter(
-        registration_request=request_obj, 
-        aprobado=False, 
-        is_deleted=False
-    )
-    if revision:
-        qs = qs.exclude(pk=revision.pk)
-    return qs.exists()
 
 def validate_references_pending(request_obj: RegistrationRequest) -> bool:
     """Verifica si hay referencias pendientes."""
@@ -81,12 +72,10 @@ def validate_documents_pending(request_obj: RegistrationRequest) -> bool:
         is_deleted=False
     ).exists()
 
-def validate_all_pending(request_obj: RegistrationRequest, revision=None):
+def validate_all_pending(request_obj: RegistrationRequest):
     """
     Verifica todos los pendientes y lanza un error si se encuentra alguno.
     """
-    if validate_revision_pending(request_obj, revision):
-        raise ValidationError("Existen revisiones pendientes que deben ser resueltas.")
     if validate_references_pending(request_obj):
         raise ValidationError("Existen referencias pendientes que deben ser resueltas.")
     if validate_documents_pending(request_obj):

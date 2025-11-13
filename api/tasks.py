@@ -11,106 +11,109 @@ from django.utils import timezone
 from api.models import (
     RegistrationRequest, RegistrationDocument, RegistrationLocation, RegistrationTracking
 )
-from api.utils.rtu_extractor import extract_rtu
+from api.utils.ocr_extractor import (
+    extract_text_from_file, extract_dpi_data, extract_rtu_data, extract_patente_data
+)
 
 logger = logging.getLogger(__name__)
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=60)
-def process_rtu_for_request(self, request_id: int):
+@shared_task(bind=True, max_retries=3, default_retry_delay=120)
+def process_documents_ocr(self, request_id: int):
     """
-    Tarea asíncrona de Celery para procesar el RTU de una Solicitud de Registro.
+    Tarea asíncrona de Celery para procesar todos los documentos de una
+    solicitud de registro a través de OCR.
 
-    Esta tarea es bloqueante (CPU/IO) y se ejecuta en un worker de Celery.
-    1.  Encuentra la solicitud y su documento RTU.
-    2.  Extrae datos del PDF.
-    3.  Actualiza la solicitud con el NIT, Razón Social y estado 'PENDIENTE'.
-    4.  Crea las Ubicaciones (sucursales) extraídas del RTU.
-    5.  Crea un registro de tracking para reflejar el resultado.
-    
-    Args:
-        self (celery.Task): La instancia de la tarea (inyectada por `bind=True`).
-        request_id (int): El ID de la RegistrationRequest a procesar.
-
-    Raises:
-        ValueError: Si los datos del RTU son inválidos o faltan.
-        RegistrationRequest.DoesNotExist: Si la solicitud no se encuentra.
+    Orquesta la extracción de datos de DPI, RTU y Patente, actualiza
+    la solicitud y gestiona los estados del flujo.
     """
-    logger.info(f"Iniciando procesamiento de RTU para Solicitud ID: {request_id}")
+    logger.info(f"Iniciando procesamiento OCR para Solicitud ID: {request_id}")
     
-    # Usamos 'request_obj' para mantener una referencia en caso de error
-    request_obj = None 
     try:
         request_obj = RegistrationRequest.objects.get(pk=request_id)
-        
-        # Validar estado: solo procesar si está en 'nuevo'
-        if request_obj.estado != RegistrationRequest.Estado.NUEVO:
-            logger.warning(f"Solicitud ID {request_id} ya no está en estado 'nuevo'. Abortando.")
+    except RegistrationRequest.DoesNotExist:
+        logger.error(f"Abortando: Solicitud ID {request_id} no existe.")
+        return
+
+    try:
+        # Validar estado
+        if request_obj.estado != RegistrationRequest.Estado.PROCESANDO_DOCUMENTOS:
+            logger.warning(f"Solicitud ID {request_id} ya no está en estado 'PROCESANDO'. Abortando.")
             return
 
-        rtu_document = RegistrationDocument.objects.filter(
-            registration_request=request_obj,
-            tipo_documento='rtu',
-            is_deleted=False
-        ).first()
+        documents = request_obj.registrationdocument_set.filter(is_deleted=False)
+        doc_paths = {doc.tipo_documento: doc.archivo.path for doc in documents}
 
-        if not rtu_document:
-            raise ValueError("No se encontró el documento RTU para procesar.")
+        updates = {}
+        cross_validation_errors = []
 
-        # --- 1. Procesamiento de PDF (Lento, pero seguro en Celery) ---
-        pdf_path = rtu_document.archivo.path
-        data = extract_rtu(pdf_path)
+        # --- 1. Procesar DPI ---
+        if 'dpi_file' in doc_paths:
+            dpi_text = extract_text_from_file(doc_paths['dpi_file'])
+            dpi_data = extract_dpi_data(dpi_text)
+            if dpi_data.get('dpi') and dpi_data['dpi'] != request_obj.dpi:
+                cross_validation_errors.append(f"DPI del documento ({dpi_data['dpi']}) no coincide con el ingresado ({request_obj.dpi}).")
+            # Podríamos opcionalmente rellenar nombres/apellidos si están vacíos
+            # updates['nombres'] = dpi_data.get('nombres') or request_obj.nombres
 
-        nit = data.get("nit")
-        razon = data.get("razon_social")
-        establecimientos = data.get("establecimientos", []) or []
+        # --- 2. Procesar RTU ---
+        if 'rtu_file' in doc_paths:
+            rtu_data = extract_rtu_data(doc_paths['rtu_file'])
+            if rtu_data.get('nit'):
+                updates['nit'] = rtu_data['nit']
+            if rtu_data.get('razon_social'):
+                updates['negocio_nombre'] = rtu_data['razon_social']
 
-        if not nit or not razon:
-            raise ValueError("No se pudo extraer el NIT o la Razón Social del RTU.")
-        if not establecimientos:
-            raise ValueError("El RTU debe contener al menos un establecimiento.")
+            establecimientos = rtu_data.get("establecimientos", [])
+            if not establecimientos:
+                raise ValueError("El RTU debe contener al menos un establecimiento.")
+
+        # --- 3. Procesar Patente de Comercio (opcional) ---
+        if 'patente_comercio_file' in doc_paths:
+            patente_text = extract_text_from_file(doc_paths['patente_comercio_file'])
+            patente_data = extract_patente_data(patente_text)
+            # Lógica para usar datos de la patente...
 
         with transaction.atomic():
-            # --- 2. Actualizar Solicitud ---
-            request_obj.nit = nit
-            request_obj.negocio_nombre = razon
-            request_obj.estado = RegistrationRequest.Estado.PENDIENTE
-            request_obj.save(update_fields=['nit', 'negocio_nombre', 'estado'])
+            # Aplicar actualizaciones a la solicitud
+            for key, value in updates.items():
+                setattr(request_obj, key, value)
 
-            # --- 3. Crear Ubicaciones (Sucursales) ---
+            # Crear ubicaciones del RTU
+            RegistrationLocation.objects.filter(registration_request=request_obj).delete() # Limpiar previas
             for est in establecimientos:
                 RegistrationLocation.objects.create(
                     registration_request=request_obj,
-                    nombre=est.get('nombre_comercial') or est.get('nombre') or 'Sin nombre',
-                    direccion=est.get('direccion') or 'No especificada',
-                    departamento=est.get('departamento') or 'No especificado',
-                    municipio=est.get('municipio') or 'No especificado',
-                    telefono=request_obj.telefono_negocio or request_obj.telefono or '00000000'
+                    nombre=est.get('nombre_comercial', 'Sin nombre'),
+                    direccion=est.get('direccion', 'No especificada'),
+                    departamento=est.get('departamento'),
+                    municipio=est.get('municipio'),
+                    telefono=request_obj.telefono_negocio or request_obj.telefono
                 )
             
-            # --- 4. Actualizar Tracking (Directamente) ---
-            RegistrationTracking.objects.create(
-                registration_request=request_obj,
-                estado=RegistrationRequest.Estado.PENDIENTE,
-                observacion='Perfil creado y RTU procesado automáticamente.'
-            )
-        
-        logger.info(f"Procesamiento de RTU completado para Solicitud ID: {request_id}")
+            # Gestionar estado final y observaciones
+            if cross_validation_errors:
+                request_obj.observaciones = "Errores de validación cruzada:\n" + "\n".join(cross_validation_errors)
+                request_obj.estado = RegistrationRequest.Estado.PENDIENTE_ASIGNACION # Aún se puede asignar, pero con errores
+            else:
+                request_obj.estado = RegistrationRequest.Estado.PENDIENTE_ASIGNACION
 
-    except RegistrationRequest.DoesNotExist:
-        logger.error(f"Fallo la tarea: Solicitud ID {request_id} no existe.")
-        # No se reintenta si el objeto no existe.
-        
-    except Exception as e:
-        logger.error(f"Fallo el procesamiento de RTU para Solicitud ID {request_id}: {str(e)}")
-        if request_obj:
-            # Si hay un error de validación o procesamiento, marcar para revisión manual.
-            request_obj.estado = RegistrationRequest.Estado.ERROR_RTU
-            request_obj.save(update_fields=['estado'])
+            request_obj.save()
+
             RegistrationTracking.objects.create(
                 registration_request=request_obj,
-                estado=RegistrationRequest.Estado.ERROR_RTU,
-                observacion=f"Fallo en el procesamiento automático del RTU: {str(e)}"
+                estado=request_obj.estado,
+                observacion='Procesamiento OCR completado.' + (' Con errores de validación.' if cross_validation_errors else '')
             )
         
-        # Reintentar la tarea (ej. por bloqueo de archivo, error de red temporal)
+        logger.info(f"Procesamiento OCR completado para Solicitud ID: {request_id}")
+
+    except Exception as e:
+        logger.error(f"Fallo el procesamiento OCR para Solicitud ID {request_id}: {str(e)}")
+        request_obj.estado = RegistrationRequest.Estado.ERROR_OCR
+        request_obj.save(update_fields=['estado'])
+        RegistrationTracking.objects.create(
+            registration_request=request_obj,
+            estado=RegistrationRequest.Estado.ERROR_OCR,
+            observacion=f"Fallo en el procesamiento automático de documentos: {str(e)}"
+        )
         self.retry(exc=e)

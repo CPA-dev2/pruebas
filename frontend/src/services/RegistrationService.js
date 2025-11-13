@@ -22,6 +22,132 @@ const CREATE_REGISTRATION_MUTATION = `
   }
 `;
 
+const GET_REGISTRATION_REQUEST_BY_ID_QUERY = `
+  query GetRegistrationRequestById($id: ID!) {
+    registrationRequest(id: $id) {
+      id
+      nombres
+      apellidos
+      dpi
+      correo
+      telefono
+      departamento
+      municipio
+      direccion
+      negocio_nombre
+      nit
+      telefono_negocio
+      equipamiento
+      sucursales
+      antiguedad
+      productos_distribuidos
+      tipo_persona
+      cuenta_bancaria
+      numero_cuenta
+      tipo_cuenta
+      banco
+      estado
+      observaciones
+      assignmentKey {
+        id
+        username
+      }
+      # Aquí se necesitarían los nodos para documentos, referencias, etc.
+    }
+  }
+`;
+
+// --- Consultas y Mutaciones para el Panel de Administración ---
+
+const GET_REGISTRATION_REQUESTS_QUERY = `
+  query GetAllRegistrationRequests($first: Int, $after: String, $estado: String) {
+    allRegistrationRequests(first: $first, after: $after, estado: $estado) {
+      edges {
+        node {
+          id
+          nombres
+          apellidos
+          dpi
+          correo
+          estado
+          assignmentKey {
+            id
+            username
+          }
+          created
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+`;
+
+const ASSIGN_REQUEST_MUTATION = `
+  mutation AssignRegistrationRequest($id: ID!, $userId: ID!) {
+    assignRegistrationRequest(id: $id, userId: $userId) {
+      request {
+        id
+        estado
+        assignmentKey {
+          id
+          username
+        }
+      }
+    }
+  }
+`;
+
+const SUBMIT_REVIEW_MUTATION = `
+  mutation SubmitReview($id: ID!, $observaciones: String!) {
+    submitReview(id: $id, observaciones: $observaciones) {
+      request {
+        id
+        estado
+        observaciones
+      }
+    }
+  }
+`;
+
+const RESUBMIT_REQUEST_MUTATION = `
+  mutation ResubmitRequest($id: ID!) {
+    resubmitRequest(id: $id) {
+      request {
+        id
+        estado
+      }
+    }
+  }
+`;
+
+const SEND_TO_APPROVAL_MUTATION = `
+  mutation SendToApproval($id: ID!) {
+    sendToApproval(id: $id) {
+      request {
+        id
+        estado
+      }
+    }
+  }
+`;
+
+const APPROVE_REQUEST_MUTATION = `
+  mutation ApproveRegistrationRequest($id: ID!) {
+    approveRegistrationRequest(id: $id) {
+      distributor {
+        id
+        nombres
+        apellidos
+        estado
+      }
+    }
+  }
+`;
+
+
 /**
  * Construye un objeto FormData para la petición multipart/form-data
  * siguiendo la especificación de GraphQL multipart request.
@@ -93,8 +219,76 @@ const RegistrationService = {
    */
   getCreateMutationString: () => CREATE_REGISTRATION_MUTATION,
 
-  // (Aquí irían los otros servicios para el flujo de admin,
-  //  como getRequests, assignRequest, approveRequest, etc.)
+  /**
+   * Obtiene una lista paginada de solicitudes de registro.
+   * @param {object} variables - Variables de paginación y filtro (first, after, estado).
+   */
+  getRegistrationRequests: (variables) => {
+    return apiClient.post('/graphql/', {
+      query: GET_REGISTRATION_REQUESTS_QUERY,
+      variables,
+    });
+  },
+
+  /**
+   * Asigna una solicitud a un colaborador.
+   */
+  assignRequest: (id, userId) => {
+    return apiClient.post('/graphql/', {
+      query: ASSIGN_REQUEST_MUTATION,
+      variables: { id, userId },
+    });
+  },
+
+  /**
+   * Envía observaciones de revisión.
+   */
+  submitReview: (id, observaciones) => {
+    return apiClient.post('/graphql/', {
+      query: SUBMIT_REVIEW_MUTATION,
+      variables: { id, observaciones },
+    });
+  },
+
+  /**
+   * Reenvía una solicitud para revisión.
+   */
+  resubmitRequest: (id) => {
+    return apiClient.post('/graphql/', {
+      query: RESUBMIT_REQUEST_MUTATION,
+      variables: { id },
+    });
+  },
+
+  /**
+   * Envía una solicitud para aprobación final.
+   */
+  sendToApproval: (id) => {
+    return apiClient.post('/graphql/', {
+      query: SEND_TO_APPROVAL_MUTATION,
+      variables: { id },
+    });
+  },
+
+  /**
+   * Aprueba una solicitud y crea el distribuidor.
+   */
+  approveRequest: (id) => {
+    return apiClient.post('/graphql/', {
+      query: APPROVE_REQUEST_MUTATION,
+      variables: { id },
+    });
+  },
+
+  /**
+   * Obtiene los detalles completos de una única solicitud de registro.
+   */
+  getRegistrationRequestById: (id) => {
+    return apiClient.post('/graphql/', {
+      query: GET_REGISTRATION_REQUEST_BY_ID_QUERY,
+      variables: { id },
+    });
+  },
 };
 
 export default RegistrationService;

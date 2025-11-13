@@ -81,79 +81,76 @@ class ApproveRegistrationRequest(graphene.Mutation):
 
 class AssignRegistrationRequest(graphene.Mutation):
     """
-    Asigna una solicitud de registro a un revisor (el usuario autenticado).
-    Cambia el estado de 'pendiente' a 'revision'.
+    Asigna una solicitud de registro a un colaborador para su revisión.
+    Cambia el estado a 'Asignada'.
     """
     class Arguments:
-        id = graphene.ID(required=True)
+        id = graphene.ID(required=True, description="ID de la solicitud a asignar.")
+        user_id = graphene.ID(required=True, description="ID del colaborador a quien se asigna.")
     
     request = graphene.Field(RegistrationRequestNode)
 
-    def mutate(self, info, id):
-        user = info.context.user
-        check_is_authenticated(user)
+    def mutate(self, info, id, user_id):
+        check_permission(info.context.user, "can_assign_registrations")
         try:
-            real_id = from_global_id(id)[1]
+            request_id = from_global_id(id)[1]
+            assignee_id = from_global_id(user_id)[1]
+
             request_obj = registration_service.assign_registration_request(
-                request_id=real_id,
-                user=user
+                request_id=request_id,
+                assignee_id=assignee_id,
+                assigner_user=info.context.user
             )
             return AssignRegistrationRequest(request=request_obj)
         except (ValidationError, PermissionDenied) as e:
             raise GraphQLError(e.message)
         except Exception as e:
-            raise GraphQLError(f"Error inesperado: {str(e)}")
+            raise GraphQLError(f"Error inesperado al asignar la solicitud: {str(e)}")
 
-class CreateRegistrationRevisions(graphene.Mutation):
-    """Crea una o más revisiones (observaciones) para una solicitud."""
-    class Arguments:
-        request_id = graphene.ID(required=True)
-        revisions = graphene.List(graphene.NonNull(RevisionInput), required=True)
-        
-    revisions = graphene.List(RegistrationRevisionNode)
-
-    def mutate(self, info, request_id, revisions):
-        user = info.context.user
-        check_is_authenticated(user)
-        try:
-            real_id = from_global_id(request_id)[1]
-            created_revisions = registration_service.create_registration_revision(
-                request_id=real_id,
-                revisions_data=revisions,
-                user=user
-            )
-            return CreateRegistrationRevisions(revisions=created_revisions)
-        except (ValidationError, PermissionDenied) as e:
-            raise GraphQLError(e.message)
-        except Exception as e:
-            raise GraphQLError(f"Error inesperado: {str(e)}")
-
-class UpdateRegistrationRevision(graphene.Mutation):
-    """Actualiza una revisión (ej. la marca como aprobada)."""
+class SubmitReview(graphene.Mutation):
+    """
+    Permite a un revisor enviar observaciones/correcciones al solicitante.
+    Cambia el estado a 'Pendiente de Correcciones'.
+    """
     class Arguments:
         id = graphene.ID(required=True)
-        aprobado = graphene.Boolean()
-        comentarios = graphene.String()
-        
-    revision = graphene.Field(RegistrationRevisionNode)
-    
-    def mutate(self, info, id, **kwargs):
-        user = info.context.user
-        check_is_authenticated(user)
-        try:
-            real_id = from_global_id(id)[1]
-            updated_revision = registration_service.update_registration_revision_status(
-                revision_id=real_id,
-                data=kwargs,
-                user=user
-            )
-            return UpdateRegistrationRevision(revision=updated_revision)
-        except (ValidationError, PermissionDenied) as e:
-            raise GraphQLError(e.message)
-        except Exception as e:
-            raise GraphQLError(f"Error inesperado: {str(e)}")
+        observaciones = graphene.String(required=True)
 
-# ... (Aquí irían las mutaciones para actualizar estado de Document y Reference)
+    request = graphene.Field(RegistrationRequestNode)
+
+    def mutate(self, info, id, observaciones):
+        # Lógica que se implementará en el servicio
+        pass
+
+class ResubmitRequest(graphene.Mutation):
+    """
+    Permite al solicitante reenviar la solicitud después de corregir.
+    Cambia el estado a 'En Revisión'.
+    """
+    class Arguments:
+        id = graphene.ID(required=True)
+        # Aquí también podrían ir `data` y `files` si se permite
+        # al usuario editar la información en este paso.
+
+    request = graphene.Field(RegistrationRequestNode)
+
+    def mutate(self, info, id):
+        # Lógica que se implementará en el servicio
+        pass
+
+class SendToApproval(graphene.Mutation):
+    """
+    El revisor envía la solicitud a un administrador para aprobación final.
+    Cambia el estado a 'Pendiente de Aprobación'.
+    """
+    class Arguments:
+        id = graphene.ID(required=True)
+
+    request = graphene.Field(RegistrationRequestNode)
+
+    def mutate(self, info, id):
+        # Lógica que se implementará en el servicio
+        pass
 
 class RegistrationRequestMutations(graphene.ObjectType):
     """
@@ -162,5 +159,6 @@ class RegistrationRequestMutations(graphene.ObjectType):
     create_registration_request = CreateRegistrationRequest.Field()
     approve_registration_request = ApproveRegistrationRequest.Field()
     assign_registration_request = AssignRegistrationRequest.Field()
-    create_registration_revisions = CreateRegistrationRevisions.Field()
-    update_registration_revision = UpdateRegistrationRevision.Field()
+    submit_review = SubmitReview.Field()
+    resubmit_request = ResubmitRequest.Field()
+    send_to_approval = SendToApproval.Field()

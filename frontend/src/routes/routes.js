@@ -20,6 +20,9 @@ import DistributorDetailPage from "../pages/private/Distributors/DistributorDeta
 import DistributorEditPage from "../pages/private/Distributors/DistributorEditPage";
 import DistributorRegistration from "../pages/public/DistributorRegistration/DistributorRegistration";
 import DistributorValidatePage from "../pages/private/Distributors/Validate/DistributorValidatePage";
+import RegistrationListPage from "../pages/private/Distributors/RegistrationListPage";
+import RegistrationReviewPage from "../pages/private/Distributors/RegistrationReviewPage";
+import RegistrationCorrectionsPage from "../pages/public/DistributorRegistration/RegistrationCorrectionsPage";
 import AuditlogsPage from "../pages/private/Auditlogs/AuditlogsPage";
 import Dashboard from "../pages/private/Dashboard/Dashboard";
 
@@ -124,6 +127,31 @@ export const routes = [
     isPrivate: true,
     showSidebar: false, // Importante: no la mostramos en el menú lateral
     accessValidate: ["Backoffice"],
+  },
+  {
+    name: "Solicitudes Registro",
+    icon: MdBusiness,
+    path: "/registrations",
+    component: RegistrationListPage,
+    isPrivate: true,
+    showSidebar: true,
+    accessValidate: ["Backoffice", "Administrador"],
+  },
+  {
+    name: "Revisión de Solicitud",
+    path: "/registrations/:registrationId",
+    component: RegistrationReviewPage,
+    isPrivate: true,
+    showSidebar: false,
+    accessValidate: ["Backoffice", "Administrador"],
+  },
+  {
+    name: "Corregir Solicitud",
+    path: "/registrations/correct/:registrationId",
+    component: RegistrationCorrectionsPage,
+    isPrivate: false, // Es pública pero se accede por enlace único
+    showSidebar: false,
+    accessValidate: false,
   },
   {
     name: "Usuarios",

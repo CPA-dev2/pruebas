@@ -11,18 +11,42 @@ import {
   Heading, Button, Flex, Divider, FormErrorMessage
 } from '@chakra-ui/react';
 import FileUploader from '../../../../components/Componentes_reutilizables/FileUpload/FileUploader';
-import { useRegistrationForm } from '../../../context/RegistrationContext';
-import { DOCUMENT_TYPES } from '../../../../components/Componentes_reutilizables/FileUpload/FileValidation';
+import { useRegistrationForm } from '../../../../context/RegistrationContext';
+import { DOCUMENT_TYPES, validateFile } from '../../../../components/Componentes_reutilizables/FileUpload/FileValidation';
 
-// 1. Schema de validación local del paso
-// Valida que cada archivo sea un objeto 'File' (usando Yup.mixed())
+// 1. Schema de validación con reglas de formato y tamaño
 export const validationSchema = Yup.object().shape({
   documentos: Yup.object().shape({
-    [DOCUMENT_TYPES.DPI_FRONTAL]: Yup.mixed().nullable().required('El DPI frontal es obligatorio.'),
-    [DOCUMENT_TYPES.DPI_POSTERIOR]: Yup.mixed().nullable().required('El DPI posterior es obligatorio.'),
-    [DOCUMENT_TYPES.RTU]: Yup.mixed().nullable().required('El RTU es obligatorio.'),
-    [DOCUMENT_TYPES.PATENTE_COMERCIO]: Yup.mixed().nullable().required('La Patente de Comercio es obligatoria.'),
-    [DOCUMENT_TYPES.FACTURA_SERVICIO]: Yup.mixed().nullable().required('La factura de servicio es obligatoria.'),
+    [DOCUMENT_TYPES.DPI_FRONTAL]: Yup.mixed().nullable().required('El DPI frontal es obligatorio.')
+      .test('file-validation', 'Archivo inválido', (file) => {
+        if (!file) return true; // El 'required' ya lo maneja si es nulo
+        const { isValid, errors } = validateFile(file, DOCUMENT_TYPES.DPI_FRONTAL);
+        return isValid || new Yup.ValidationError(errors.join(', '), file, 'documentos');
+      }),
+    [DOCUMENT_TYPES.DPI_POSTERIOR]: Yup.mixed().nullable().required('El DPI posterior es obligatorio.')
+      .test('file-validation', 'Archivo inválido', (file) => {
+        if (!file) return true;
+        const { isValid, errors } = validateFile(file, DOCUMENT_TYPES.DPI_POSTERIOR);
+        return isValid || new Yup.ValidationError(errors.join(', '), file, 'documentos');
+      }),
+    [DOCUMENT_TYPES.RTU]: Yup.mixed().nullable().required('El RTU es obligatorio.')
+      .test('file-validation', 'Archivo inválido', (file) => {
+        if (!file) return true;
+        const { isValid, errors } = validateFile(file, DOCUMENT_TYPES.RTU);
+        return isValid || new Yup.ValidationError(errors.join(', '), file, 'documentos');
+      }),
+    [DOCUMENT_TYPES.PATENTE_COMERCIO]: Yup.mixed().nullable().required('La Patente de Comercio es obligatoria.')
+      .test('file-validation', 'Archivo inválido', (file) => {
+        if (!file) return true;
+        const { isValid, errors } = validateFile(file, DOCUMENT_TYPES.PATENTE_COMERCIO);
+        return isValid || new Yup.ValidationError(errors.join(', '), file, 'documentos');
+      }),
+    [DOCUMENT_TYPES.FACTURA_SERVICIO]: Yup.mixed().nullable().required('La factura de servicio es obligatoria.')
+      .test('file-validation', 'Archivo inválido', (file) => {
+        if (!file) return true;
+        const { isValid, errors } = validateFile(file, DOCUMENT_TYPES.FACTURA_SERVICIO);
+        return isValid || new Yup.ValidationError(errors.join(', '), file, 'documentos');
+      }),
   }),
 });
 

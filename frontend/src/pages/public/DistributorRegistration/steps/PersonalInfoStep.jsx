@@ -11,7 +11,7 @@ import {
   FormErrorMessage, Select, Textarea, Heading, Button, Flex, Divider
 } from '@chakra-ui/react';
 // 1. Importar el hook del contexto
-import { useRegistrationForm } from '../../../context/RegistrationContext'; 
+import { useRegistrationForm } from '../../../../context/RegistrationContext';
 import { DEPARTAMENTOS_GUATEMALA, getMunicipiosByDepartamento } from '../../../../variables/locations';
 
 // 2. El schema de validación sigue siendo local del paso

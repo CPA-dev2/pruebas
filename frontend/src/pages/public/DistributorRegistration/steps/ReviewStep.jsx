@@ -14,7 +14,7 @@ import {
   MdFileCopy, MdCheckCircle,
 } from 'react-icons/md';
 // 1. Importar el hook del contexto
-import { useRegistrationForm } from '../../../context/RegistrationContext';
+import { useRegistrationForm } from '../../../../context/RegistrationContext';
 import { formatFileSize, VALIDATION_CONFIG } from '../../../../components/Componentes_reutilizables/FileUpload/FileValidation';
 
 // --- Componentes de UI Locales (Helpers) ---
