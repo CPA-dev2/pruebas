@@ -1,10 +1,10 @@
 from django.db import models
 
-from api.models import registration_request
+from api.models import RegistrationRequest
 from .base_model import BaseModel
 
 
-class Trackingdistributor(BaseModel):
+class RegistrationTracking(BaseModel):
     """
     Representa el seguimiento de un distribuidor en el sistema.
 
@@ -18,9 +18,9 @@ class Trackingdistributor(BaseModel):
         notas (TextField): Notas adicionales sobre el distribuidor.
     """
     registration_request = models.ForeignKey(
-        registration_request.RegistrationRequest,
+        RegistrationRequest.RegistrationRequest,
         on_delete=models.CASCADE,
-        related_name="documentos",
+        related_name="trackings",
         help_text="Solicitud asociada a la referencia."
     )
     estado = models.CharField(

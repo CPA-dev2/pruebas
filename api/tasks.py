@@ -1,138 +1,116 @@
-# api/tasks.py
+"""
+Módulo de Tareas Asíncronas (Celery).
 
-# REFACTOR: Importar 'Task' de celery para usarlo como clase base
-from celery import shared_task, Task
-from celery.utils.log import get_task_logger
+Contiene tareas pesadas o de larga duración que se ejecutan en segundo plano
+para no bloquear el servidor web, como el procesamiento de archivos PDF.
+"""
+import logging
+from celery import shared_task
 from django.db import transaction
-from django.apps import apps
+from django.utils import timezone
+from api.models import (
+    RegistrationRequest, RegistrationDocument, RegistrationLocation, RegistrationTracking
+)
 from api.utils.rtu_extractor import extract_rtu
 
-# Es más seguro usar apps.get_model en tareas para evitar
-# problemas de registro de apps al arranque.
-Distributor = apps.get_model('api', 'Distributor')
-Document = apps.get_model('api', 'Document')
-Location = apps.get_model('api', 'Location')
-Trackingdistributor = apps.get_model('api', 'Trackingdistributor')
+logger = logging.getLogger(__name__)
 
-logger = get_task_logger(__name__)
-
-# REFACTOR: La clase base debe heredar de 'celery.Task', no de 'shared_task'
-class BaseDistributorTask(Task):
+@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+def process_rtu_for_request(self, request_id: int):
     """
-    Clase base de Tarea Celery personalizada.
+    Tarea asíncrona de Celery para procesar el RTU de una Solicitud de Registro.
+
+    Esta tarea es bloqueante (CPU/IO) y se ejecuta en un worker de Celery.
+    1.  Encuentra la solicitud y su documento RTU.
+    2.  Extrae datos del PDF.
+    3.  Actualiza la solicitud con el NIT, Razón Social y estado 'PENDIENTE'.
+    4.  Crea las Ubicaciones (sucursales) extraídas del RTU.
+    5.  Crea un registro de tracking para reflejar el resultado.
     
-    Hereda de 'celery.Task' para definir comportamientos reusables
-    como 'on_failure' y 'on_success' que se ejecutarán
-    automáticamente para todas las tareas que usen esta base.
+    Args:
+        self (celery.Task): La instancia de la tarea (inyectada por `bind=True`).
+        request_id (int): El ID de la RegistrationRequest a procesar.
+
+    Raises:
+        ValueError: Si los datos del RTU son inválidos o faltan.
+        RegistrationRequest.DoesNotExist: Si la solicitud no se encuentra.
     """
-    name = "BaseDistributorTask"
-
-    def on_failure(self, exc, task_id, args, kwargs, einfo):
-        """
-        Manejador de evento que se ejecuta cuando la tarea falla permanentemente
-        (después de todos los reintentos).
-        """
-        logger.error(f'Tarea {task_id} falló permanentemente: {exc}', exc_info=True)
-        try:
-            distributor_id = args[0]
-            distributor = Distributor.objects.get(pk=distributor_id)
-            Trackingdistributor.objects.create(
-                distributor=distributor,
-                estado='error_procesamiento',
-                comments=f"Error fatal en Tarea Celery {task_id}: {str(exc)}"
-            )
-        except Exception as e:
-            logger.error(f"No se pudo guardar el error de la tarea en el tracking: {e}")
-
-    def on_success(self, retval, task_id, args, kwargs):
-        logger.info(f'Tarea {task_id} completada exitosamente. Resultado: {retval}')
-
-# REFACTOR: El decorador '@shared_task' ahora usa 'base=BaseDistributorTask'
-@shared_task(bind=True, base=BaseDistributorTask, max_retries=3, default_retry_delay=60)
-def process_distributor_rtu(self, distributor_id):
-    """
-    Tarea asíncrona de Celery para procesar el documento RTU de un distribuidor.
+    logger.info(f"Iniciando procesamiento de RTU para Solicitud ID: {request_id}")
     
-    1. Busca el distribuidor y su documento RTU.
-    2. Llama al servicio de extracción de OCR (extract_rtu).
-    3. Maneja fallos de extracción (PDF corrupto) y actualiza el estado a 'correccion'.
-    4. Si tiene éxito, actualiza el distribuidor y crea sus ubicaciones (Location)
-       dentro de una transacción de BD atómica.
-    """
+    # Usamos 'request_obj' para mantener una referencia en caso de error
+    request_obj = None 
     try:
-        distributor = Distributor.objects.get(pk=distributor_id)
-        logger.info(f"Iniciando procesamiento de RTU para Distribuidor ID: {distributor_id}")
+        request_obj = RegistrationRequest.objects.get(pk=request_id)
+        
+        # Validar estado: solo procesar si está en 'nuevo'
+        if request_obj.estado != RegistrationRequest.Estado.NUEVO:
+            logger.warning(f"Solicitud ID {request_id} ya no está en estado 'nuevo'. Abortando.")
+            return
 
-        rtu_document = Document.objects.filter(
-            distributor=distributor, 
-            tipoDocumento='rtu',
+        rtu_document = RegistrationDocument.objects.filter(
+            registration_request=request_obj,
+            tipo_documento='rtu',
             is_deleted=False
         ).first()
 
-        if not rtu_document or not rtu_document.archivo:
-            logger.warning(f"No se encontró documento RTU para {distributor_id}. Abortando.")
-            return f"No RTU document found for distributor {distributor_id}."
+        if not rtu_document:
+            raise ValueError("No se encontró el documento RTU para procesar.")
 
-        # 2. Intentar la extracción de datos
-        try:
-            rtu_data = extract_rtu(rtu_document.archivo.path)
-            if not rtu_data or not rtu_data.get('nit') or not rtu_data.get('nombre_negocio'):
-                raise ValueError("La extracción de RTU no devolvió los datos esperados (NIT o Nombre).")
-            logger.info(f"Extracción de RTU exitosa para {distributor_id}.")
+        # --- 1. Procesamiento de PDF (Lento, pero seguro en Celery) ---
+        pdf_path = rtu_document.archivo.path
+        data = extract_rtu(pdf_path)
 
-        # 3. MEJORA DE ROBUSTEZ: Manejar fallos de extracción
-        except Exception as e:
-            logger.error(f"Fallo al extraer datos del RTU para {distributor_id}: {e}", exc_info=True)
-            with transaction.atomic():
-                distributor.estado = 'correccion'
-                distributor.save()
-                Trackingdistributor.objects.create(
-                    distributor=distributor,
-                    estado='correccion',
-                    comments=f"Error automático al procesar RTU: {str(e)}. Requiere revisión manual."
+        nit = data.get("nit")
+        razon = data.get("razon_social")
+        establecimientos = data.get("establecimientos", []) or []
+
+        if not nit or not razon:
+            raise ValueError("No se pudo extraer el NIT o la Razón Social del RTU.")
+        if not establecimientos:
+            raise ValueError("El RTU debe contener al menos un establecimiento.")
+
+        with transaction.atomic():
+            # --- 2. Actualizar Solicitud ---
+            request_obj.nit = nit
+            request_obj.negocio_nombre = razon
+            request_obj.estado = RegistrationRequest.Estado.PENDIENTE
+            request_obj.save(update_fields=['nit', 'negocio_nombre', 'estado'])
+
+            # --- 3. Crear Ubicaciones (Sucursales) ---
+            for est in establecimientos:
+                RegistrationLocation.objects.create(
+                    registration_request=request_obj,
+                    nombre=est.get('nombre_comercial') or est.get('nombre') or 'Sin nombre',
+                    direccion=est.get('direccion') or 'No especificada',
+                    departamento=est.get('departamento') or 'No especificado',
+                    municipio=est.get('municipio') or 'No especificado',
+                    telefono=request_obj.telefono_negocio or request_obj.telefono or '00000000'
                 )
-            return f"RTU extraction failed for {distributor_id}."
+            
+            # --- 4. Actualizar Tracking (Directamente) ---
+            RegistrationTracking.objects.create(
+                registration_request=request_obj,
+                estado=RegistrationRequest.Estado.PENDIENTE,
+                observacion='Perfil creado y RTU procesado automáticamente.'
+            )
+        
+        logger.info(f"Procesamiento de RTU completado para Solicitud ID: {request_id}")
 
-        # 4. MEJORA DE ATOMICIDAD: Guardar los datos extraídos en la BD
-        try:
-            with transaction.atomic():
-                distributor.negocio_nombre = rtu_data.get('nombre_negocio')
-                distributor.nit = rtu_data.get('nit')
-                distributor.save()
-
-                if rtu_data.get('locations'):
-                    Location.objects.bulk_create([
-                        Location(
-                            distributor=distributor,
-                            nombre=loc.get('nombre'),
-                            departamento=loc.get('departamento'),
-                            municipio=loc.get('municipio'),
-                            direccion=loc.get('direccion'),
-                            telefono=loc.get('telefono', ''),
-                            estado='pendiente'
-                        ) for loc in rtu_data['locations']
-                    ])
-                
-                Trackingdistributor.objects.create(
-                    distributor=distributor,
-                    estado=distributor.estado,
-                    comments=f"Procesamiento de RTU completado. NIT: {rtu_data.get('nit')}."
-                )
-            return f"Distribuidor {distributor_id} actualizado con datos de RTU."
-
-        except Exception as db_e:
-            logger.error(f"Error al guardar datos de RTU en BD para {distributor_id}: {db_e}")
-            raise self.retry(exc=db_e) # Reintentar si falla el guardado en BD
-
-    except Distributor.DoesNotExist:
-        logger.warning(f"La tarea {self.request.id} buscó el Distribuidor {distributor_id} pero no existe.")
-        return f"Distributor {distributor_id} not found."
-    
+    except RegistrationRequest.DoesNotExist:
+        logger.error(f"Fallo la tarea: Solicitud ID {request_id} no existe.")
+        # No se reintenta si el objeto no existe.
+        
     except Exception as e:
-        logger.error(f"Error inesperado en tarea process_distributor_rtu para {distributor_id}: {e}")
-        raise self.retry(exc=e)
-
-# Aquí irían otras tareas asíncronas, como la validación de DPI
-# @shared_task(bind=True, base=BaseDistributorTask)
-# def process_distributor_dpi(self, distributor_id, dpi_data_ingresado):
-#     ...
+        logger.error(f"Fallo el procesamiento de RTU para Solicitud ID {request_id}: {str(e)}")
+        if request_obj:
+            # Si hay un error de validación o procesamiento, marcar para revisión manual.
+            request_obj.estado = RegistrationRequest.Estado.ERROR_RTU
+            request_obj.save(update_fields=['estado'])
+            RegistrationTracking.objects.create(
+                registration_request=request_obj,
+                estado=RegistrationRequest.Estado.ERROR_RTU,
+                observacion=f"Fallo en el procesamiento automático del RTU: {str(e)}"
+            )
+        
+        # Reintentar la tarea (ej. por bloqueo de archivo, error de red temporal)
+        self.retry(exc=e)

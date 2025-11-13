@@ -1,19 +1,23 @@
-// frontend/src/pages/public/DistributorRegistration/steps/ReviewStep.jsx
+/**
+ * @file Paso 6 del formulario: Revisión Final.
+ * Consume el contexto y muestra un resumen de solo lectura de TODOS
+ * los datos del formulario. El botón de envío final es manejado por el
+ * componente padre (`DistributorRegistration`).
+ */
 import React from 'react';
 import {
   Box, Heading, Text, Divider, SimpleGrid, List, ListItem, ListIcon,
-  VStack, HStack, Icon, useColorModeValue, GridItem,
+  VStack, HStack, Icon, useColorModeValue, GridItem, Button, Flex
 } from '@chakra-ui/react';
 import {
   MdPerson, MdBusiness, MdAccountBalance, MdPeople,
   MdFileCopy, MdCheckCircle,
 } from 'react-icons/md';
-// Importamos los helpers de formato y validación
+// 1. Importar el hook del contexto
+import { useRegistrationForm } from '../../../context/RegistrationContext';
 import { formatFileSize, VALIDATION_CONFIG } from '../../../../components/Componentes_reutilizables/FileUpload/FileValidation';
 
-/**
- * Componente helper reutilizable para mostrar un par de "etiqueta: valor"
- */
+// --- Componentes de UI Locales (Helpers) ---
 const InfoItem = ({ label, value }) => {
   const labelColor = useColorModeValue('gray.600', 'gray.400');
   const valueColor = useColorModeValue('gray.800', 'gray.100');
@@ -26,21 +30,18 @@ const InfoItem = ({ label, value }) => {
   );
 };
 
-/**
- * Componente helper para mostrar un título de sección estandarizado
- */
 const SectionHeader = ({ icon, title }) => (
   <HStack spacing={3} mb={5}>
     <Icon as={icon} boxSize={6} color="orange.400" />
     <Heading size="md">{title}</Heading>
   </HStack>
 );
+// --- Fin de Componentes de UI ---
 
-/**
- * `ReviewStep` muestra un resumen de toda la información ingresada para
- * la verificación final del usuario.
- */
-const ReviewStep = ({ values }) => {
+const ReviewStep = () => {
+  // 2. Obtener datos y acciones del contexto
+  const { formData, goToPrevious, isSubmitting } = useRegistrationForm();
+  const values = formData; // Alias para facilitar la lectura
   const borderColor = useColorModeValue('gray.200', 'gray.700');
 
   return (
@@ -121,12 +122,12 @@ const ReviewStep = ({ values }) => {
           {values.documentos ? (
             Object.entries(values.documentos)
               .filter(([, file]) => file != null) // Filtrar los que no se subieron
-              .map(([key, file])M => (
+              .map(([key, file]) => (
                 <ListItem key={key}>
                   <HStack>
                     <ListIcon as={MdCheckCircle} color="green.500" />
-                    {/* Usamos VALIDATION_CONFIG para obtener una etiqueta legible */}
                     <Text as="span" fontWeight="bold">
+                      {/* Usamos VALIDATION_CONFIG para obtener una etiqueta legible */}
                       {VALIDATION_CONFIG[key]?.label || key}:
                     </Text>
                     {/* REFACTOR: Leemos .name y .size del objeto File */}
@@ -143,11 +144,16 @@ const ReviewStep = ({ values }) => {
         </List>
       </Box>
 
-      <Divider my={4} />
-      <Heading size="md" textAlign="center">
-        Al presionar "Finalizar y Enviar", confirmas que toda la información
-        es correcta.
-      </Heading>
+      {/* 3. Botones de navegación (solo 'Atrás') */}
+      <Divider my={10} />
+      <Flex mt={6} justify="flex-start">
+        <Button
+          onClick={goToPrevious}
+          isDisabled={isSubmitting}
+        >
+          Atrás
+        </Button>
+      </Flex>
     </VStack>
   );
 };

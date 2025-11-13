@@ -1,9 +1,9 @@
 from django.db import models
 
-from api.models import registration_request
+from api.models import RegistrationRequest
 from .base_model import BaseModel
 
-class Revisiondistributor(BaseModel):
+class RegistrationRevision(BaseModel):
     """
     Representa la revisión de un distribuidor en el sistema.
 
@@ -17,9 +17,9 @@ class Revisiondistributor(BaseModel):
         aprobado (BooleanField): Indica si el distribuidor fue aprobado en la revisión.
     """
     registration_request = models.ForeignKey(
-        registration_request.RegistrationRequest,
+        RegistrationRequest.RegistrationRequest,
         on_delete=models.CASCADE,
-        related_name="documentos",
+        related_name="revisiones",
         help_text="Solicitud asociada a la referencia."
     )
     seccion = models.CharField(

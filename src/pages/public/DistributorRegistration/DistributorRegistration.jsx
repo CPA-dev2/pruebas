@@ -1,151 +1,64 @@
-// frontend/src/pages/public/DistributorRegistration/DistributorRegistration.jsx
+/**
+ * @file Componente Orquestador para el Registro de Distribuidores.
+ * Utiliza un Contexto (`RegistrationProvider`) para manejar el estado global
+ * y renderiza el paso activo.
+ */
 import React, { useState } from 'react';
-import { Formik, Form } from 'formik';
-import * as Yup from 'yup'; // Importar Yup
 import {
   Box, Stepper, Step, StepIndicator, StepStatus, StepIcon, StepNumber,
-  StepTitle, StepDescription, StepSeparator, useSteps, Button,
-  Heading, Text, VStack, Container, Alert, AlertIcon,
-  AlertTitle, AlertDescription, Flex, Card, CardHeader, CardBody, Divider
+  StepTitle, StepDescription, StepSeparator, Button, Heading, Text,
+  VStack, Container, Alert, AlertIcon, AlertTitle, AlertDescription,
+  Flex, Card, CardHeader, CardBody, Divider, Icon
 } from '@chakra-ui/react';
+import { MdCheckCircle } from 'react-icons/md';
 import { showSuccess, handleError } from '../../../services/NotificationService';
-import DistributorService from '../../../services/DistributorService';
-import { DOCUMENT_TYPES } from '../../../components/Componentes_reutilizables/FileUpload/FileValidation';
+import RegistrationService from '../../../services/RegistrationService'; // Importar el nuevo servicio
+// 1. Importar el Proveedor de Contexto y el Hook
+import { RegistrationProvider, useRegistrationForm } from '../../../context/RegistrationContext';
 
-// Importar los componentes de pasos (default) Y sus schemas (named)
-import PersonalInfoStep, { validationSchema as personalSchema } from './steps/PersonalInfoStep';
-import BusinessInfoStep, { validationSchema as businessSchema } from './steps/BusinessInfoStep';
-import BankingInfoStep, { validationSchema as bankingSchema } from './steps/BankingInfoStep';
-import ReferencesStep, { validationSchema as referencesSchema } from './steps/ReferencesStep';
-import DocumentsStep, { validationSchema as documentsSchema } from './steps/DocumentsStep';
+// 2. Importar los componentes de paso
+import PersonalInfoStep from './steps/PersonalInfoStep';
+import BusinessInfoStep from './steps/BusinessInfoStep';
+import BankingInfoStep from './steps/BankingInfoStep';
+import ReferencesStep from './steps/ReferencesStep';
+import DocumentsStep from './steps/DocumentsStep';
 import ReviewStep from './steps/ReviewStep';
 
 /**
- * Define la configuración de cada paso del formulario wizard.
+ * Componente interno que renderiza el formulario.
+ * Consume el contexto y maneja la lógica de envío.
  */
-const steps = [
-  { title: 'Personal', description: 'Información de contacto', schema: personalSchema, component: PersonalInfoStep },
-  { title: 'Negocio', description: 'Datos de su empresa', schema: businessSchema, component: BusinessInfoStep },
-  { title: 'Bancaria', description: 'Datos de cuenta', schema: bankingSchema, component: BankingInfoStep },
-  { title: 'Referencias', description: 'Contactos comerciales', schema: referencesSchema, component: ReferencesStep },
-  { title: 'Documentos', description: 'Archivos requeridos', schema: documentsSchema, component: DocumentsStep },
-  { title: 'Revisión', description: 'Confirmar datos', schema: Yup.object(), component: ReviewStep },
-];
-
-/**
- * `DistributorRegistration` es el componente principal que orquesta
- * el formulario de registro de distribuidores de múltiples pasos.
- */
-const DistributorRegistration = () => {
+const RegistrationForm = () => {
+  // 3. Obtener estado y acciones del contexto
+  const { steps, activeStep, formData, resetForm, isLastStep } = useRegistrationForm();
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionError, setSubmissionError] = useState(null);
   const [isSuccess, setIsSuccess] = useState(false);
 
-  const { activeStep, goToNext, goToPrevious } = useSteps({
-    index: 0,
-    count: steps.length,
-  });
-
-  const validationSchema = steps[activeStep].schema;
-  const isLastStep = activeStep === steps.length - 1;
-
   /**
-   * Valores iniciales para todo el formulario Formik.
-   * REFACTOR: Los documentos ahora se inicializan en 'null' para ser 'File objects'.
+   * Maneja el envío final del formulario al backend.
    */
-  const initialValues = {
-    // Personal
-    nombres: '', apellidos: '', dpi: '', correo: '', telefono: '',
-    departamento: '', municipio: '', direccion: '',
-    // Negocio
-    tipo_persona: 'individual', telefono_negocio: '', equipamiento: '',
-    sucursales: '', antiguedad: '', productos_distribuidos: '',
-    // Bancaria
-    cuenta_bancaria: '', numeroCuenta: '', tipoCuenta: '', banco: '',
-    // Referencias
-    referencias: [{ nombres: '', telefono: '', relacion: '' }],
-    // Documentos (ahora `null`, no strings)
-    documentos: {
-      [DOCUMENT_TYPES.DPI_FRONTAL]: null,
-      [DOCUMENT_TYPES.DPI_POSTERIOR]: null,
-      [DOCUMENT_TYPES.RTU]: null,
-      [DOCUMENT_TYPES.PATENTE_COMERCIO]: null,
-      [DOCUMENT_TYPES.FACTURA_SERVICIO]: null,
-    },
-  };
-
-  /**
-   * Maneja el envío del formulario.
-   * Si no es el último paso, valida y avanza.
-   * Si es el último paso, construye un FormData y envía todo al backend.
-   */
-  const handleSubmit = async (values, { setSubmitting }) => {
+  const handleFinalSubmit = async () => {
     setSubmissionError(null);
-
-    if (isLastStep) {
-      // --- REFACTOR CRÍTICO: Enviar como FormData ---
-      setSubmitting(true);
-      try {
-        const formData = new FormData();
-        
-        // 1. Separar los datos JSON de los archivos
-        const { documentos, ...otherData } = values;
-
-        // 2. Adjuntar los datos JSON como una 'string' en 'operations'
-        // (Esto es requerido por el estándar GraphQL multipart request)
-        const operations = {
-          // La query debe ser la mutación CreateDistributor que acepta
-          // un 'data' input y un 'documentos' input.
-          query: DistributorService.getCreateMutationString(), 
-          variables: {
-            data: otherData, // Todos los datos excepto los archivos
-            // Los archivos se mapearán a 'null' aquí
-            documentos: {
-              [DOCUMENT_TYPES.DPI_FRONTAL]: documentos[DOCUMENT_TYPES.DPI_FRONTAL] ? null : undefined,
-              [DOCUMENT_TYPES.DPI_POSTERIOR]: documentos[DOCUMENT_TYPES.DPI_POSTERIOR] ? null : undefined,
-              [DOCUMENT_TYPES.RTU]: documentos[DOCUMENT_TYPES.RTU] ? null : undefined,
-              [DOCUMENT_TYPES.PATENTE_COMERCIO]: documentos[DOCUMENT_TYPES.PATENTE_COMERCIO] ? null : undefined,
-              [DOCUMENT_TYPES.FACTURA_SERVICIO]: documentos[DOCUMENT_TYPES.FACTURA_SERVICIO] ? null : undefined,
-            }
-          }
-        };
-        formData.append('operations', JSON.stringify(operations));
-
-        // 3. Crear el 'map' para vincular archivos a variables
-        const fileMap = {};
-        let fileIndex = 0;
-        Object.keys(documentos).forEach(key => {
-          if (documentos[key]) {
-            // El path debe coincidir con la variable en 'operations'
-            const fileVarPath = `variables.documentos.${key}`;
-            fileMap[`${fileIndex}`] = [fileVarPath];
-            // Adjuntamos el objeto File crudo
-            formData.append(`${fileIndex}`, documentos[key], documentos[key].name); 
-            fileIndex++;
-          }
-        });
-        formData.append('map', JSON.stringify(fileMap));
-        
-        // 4. Enviar el FormData a un servicio actualizado
-        // NOTA: DistributorService.createDistributor debe ser actualizado
-        // para enviar este 'formData' con 'Content-Type: multipart/form-data'.
-        await DistributorService.createDistributor(formData); 
-        
-        setIsSuccess(true);
-      } catch (err) {
-        const errorMsg = err.response?.data?.errors?.[0]?.message || "No se pudo completar el registro.";
-        setSubmissionError(errorMsg);
-        handleError(errorMsg);
-      } finally {
-        setSubmitting(false);
-      }
+    setIsSubmitting(true);
+    try {
+      // 4. Llamar al servicio con el estado completo del formulario
+      await RegistrationService.createRegistrationRequest(formData);
       
-    } else {
-      goToNext();
-      setSubmitting(false);
+      setIsSuccess(true);
+      resetForm(); // Limpiar el formulario en el contexto
+      showSuccess("¡Registro Exitoso! Serás contactado pronto.");
+      
+    } catch (err) {
+      const errorMsg = err.response?.data?.errors?.[0]?.message || "No se pudo completar el registro.";
+      setSubmissionError(errorMsg);
+      handleError(errorMsg);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  // --- Renderizado del Éxito ---
+  // --- Renderizado de Éxito ---
   if (isSuccess) {
     return (
       <Container maxW="container.md" py={12}>
@@ -155,8 +68,7 @@ const DistributorRegistration = () => {
               <Icon as={MdCheckCircle} boxSize={16} color="green.500" />
               <Heading size="lg">¡Registro Exitoso!</Heading>
               <Text fontSize="lg" color="gray.600">
-                Hemos recibido tu solicitud. Nuestro equipo la revisará y se
-                pondrá en contacto contigo pronto.
+                Hemos recibido tu solicitud. Nuestro equipo la revisará.
               </Text>
             </VStack>
           </CardBody>
@@ -165,27 +77,19 @@ const DistributorRegistration = () => {
     );
   }
 
-  // --- Renderizado del Formulario ---
+  // --- Renderizado del Formulario "Wizard" ---
   return (
     <Container maxW="container.lg" py={12}>
       <Card>
         <CardHeader>
           <VStack align="stretch" spacing={4}>
-            <Heading size="xl" textAlign="center">
-              Registro de Nuevo Distribuidor
-            </Heading>
-            <Text textAlign="center" color="gray.500">
-              Sigue los pasos para completar tu solicitud.
-            </Text>
+            <Heading size="xl" textAlign="center">Registro de Nuevo Distribuidor</Heading>
+            <Text textAlign="center" color="gray.500">Sigue los pasos para completar tu solicitud.</Text>
             <Stepper index={activeStep} colorScheme="orange" size="sm" my={4}>
               {steps.map((step, index) => (
                 <Step key={index}>
                   <StepIndicator>
-                    <StepStatus
-                      complete={<StepIcon />}
-                      incomplete={<StepNumber />}
-                      active={<StepNumber />}
-                    />
+                    <StepStatus complete={<StepIcon />} incomplete={<StepNumber />} active={<StepNumber />} />
                   </StepIndicator>
                   <Box flexShrink="0" display={{ base: 'none', md: 'block' }}>
                     <StepTitle>{step.title}</StepTitle>
@@ -200,64 +104,52 @@ const DistributorRegistration = () => {
         </CardHeader>
         
         <CardBody p={8}>
-          <Formik
-            initialValues={initialValues}
-            onSubmit={handleSubmit}
-            validationSchema={validationSchema}
-            validateOnBlur={false}
-            validateOnChange={false}
-          >
-            {({ isSubmitting, values, setFieldValue, errors, touched }) => (
-              <Form>
-                
-                {/* Renderizado dinámico de pasos */}
-                {steps.map((step, index) => {
-                  const StepComponent = step.component;
-                  return (
-                    <Box key={index} display={activeStep === index ? 'block' : 'none'}>
-                      <StepComponent 
-                        values={values}
-                        setFieldValue={setFieldValue}
-                        errors={errors}
-                        touched={touched}
-                      />
-                    </Box>
-                  );
-                })}
+          {/* 5. Renderizado condicional de cada paso */}
+          {/* Cada componente de paso ahora tiene su propio Formik interno */}
+          <Box display={activeStep === 0 ? 'block' : 'none'}><PersonalInfoStep /></Box>
+          <Box display={activeStep === 1 ? 'block' : 'none'}><BusinessInfoStep /></Box>
+          <Box display={activeStep === 2 ? 'block' : 'none'}><BankingInfoStep /></Box>
+          <Box display={activeStep === 3 ? 'block' : 'none'}><ReferencesStep /></Box>
+          <Box display={activeStep === 4 ? 'block' : 'none'}><DocumentsStep /></Box>
+          <Box display={activeStep === 5 ? 'block' : 'none'}>
+            <ReviewStep />
+          </Box>
 
-                {/* Botones de Navegación */}
-                <Divider my={10} />
-                
-                {submissionError && (
-                  <Alert status="error" borderRadius="md" mb={4}>
-                    <AlertIcon />
-                    <AlertTitle>Error al enviar:</AlertTitle>
-                    <AlertDescription>{submissionError}</AlertDescription>
-                  </Alert>
-                )}
-                
-                <Flex mt={6} justify="space-between">
-                  <Button
-                    onClick={goToPrevious}
-                    isDisabled={activeStep === 0 || isSubmitting}
-                  >
-                    Atrás
-                  </Button>
-                  <Button
-                    type="submit"
-                    colorScheme="orange"
-                    isLoading={isSubmitting}
-                  >
-                    {isLastStep ? 'Finalizar y Enviar' : 'Siguiente'}
-                  </Button>
-                </Flex>
-              </Form>
-            )}
-          </Formik>
+          {/* Alerta de error global */}
+          {submissionError && (
+            <Alert status="error" borderRadius="md" my={6}>
+              <AlertIcon />
+              <AlertTitle>Error al enviar:</AlertTitle>
+              <AlertDescription>{submissionError}</AlertDescription>
+            </Alert>
+          )}
+
+          {/* Botón de envío final (solo en el último paso) */}
+          {isLastStep && (
+            <Flex mt={10} justify="flex-end">
+              <Button
+                size="lg"
+                colorScheme="orange"
+                isLoading={isSubmitting}
+                onClick={handleFinalSubmit}
+              >
+                Finalizar y Enviar Solicitud
+              </Button>
+            </Flex>
+          )}
         </CardBody>
       </Card>
     </Container>
   );
 };
+
+/**
+ * Componente de envoltura que provee el contexto al formulario.
+ */
+const DistributorRegistration = () => (
+  <RegistrationProvider>
+    <RegistrationForm />
+  </RegistrationProvider>
+);
 
 export default DistributorRegistration;

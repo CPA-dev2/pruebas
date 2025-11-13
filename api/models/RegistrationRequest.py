@@ -1,9 +1,10 @@
 """
-Define el modelo de base de datos para una Solicitud de Registro de Distribuidor.
+Define el modelo de la base de datos para una Solicitud de Registro de Distribuidor.
 Esta tabla 'staging' almacena todos los datos del formulario de registro
 mientras se encuentra en el flujo de aprobación.
 """
 from django.db import models
+from django.db.models import Q
 from .base_model import BaseModel
 from .usuario import Usuario
 
@@ -58,15 +59,16 @@ class RegistrationRequest(BaseModel):
         max_length=50,
         choices=Estado.choices,
         default=Estado.NUEVO,
+        db_index=True,
         help_text="Estado de la solicitud en el flujo de aprobación."
     )
-    
-    asisgnado_a = models.ForeignKey(
-        Usuario,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        help_text="Usuario asignado a la solicitud."
+    asignado_a = models.ForeignKey(
+            Usuario,
+            on_delete=models.SET_NULL,
+            null=True,
+            blank=True,
+            related_name="solicitudes_asignadas",
+            help_text="El usuario revisor que tiene asignada esta solicitud."
     )
    
     def __str__(self):
@@ -75,8 +77,10 @@ class RegistrationRequest(BaseModel):
     class Meta:
         verbose_name = "Solicitud de Registro"
         verbose_name_plural = "Solicitudes de Registro"
-
-# --- Modelos Relacionados a la Solicitud ---
-# (Se deben crear modelos similares para RegistrationDocument, RegistrationReference,
-# RegistrationLocation, RegistrationAssignment, RegistrationRevision, y
-# RegistrationTracking, todos apuntando con un ForeignKey a RegistrationRequest)
+        constraints = [
+            models.UniqueConstraint(
+                fields=['nit'],
+                condition=Q(nit__isnull=False, is_deleted=False),
+                name='unique_active_registration_nit'
+            )
+        ]

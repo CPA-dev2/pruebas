@@ -1,49 +1,48 @@
+"""
+Define el modelo de la base de datos para los Documentos
+de un Distribuidor APROBADO.
+"""
 from django.db import models
-
-from api.models import registration_request
 from .base_model import BaseModel
+from .distributor import Distributor # <-- Importa el modelo Distributor principal
 
 class Document(BaseModel):
     """
-    Representa un documento asociado a un distribuidor.
-
-    Los documentos son archivos que contienen información relevante sobre
-    un distribuidor. Hereda de `BaseModel` para incluir campos de auditoría
-    y borrado lógico.
-
-    Attributes:
-        distribuidor (ForeignKey): Relación con el modelo `Distributor`.
-        tipo_documento (str): El tipo de documento (ej. "Contrato", "Identificación").
-        archivo (FileField): El archivo del documento.
+    Almacena un archivo (DPI, RTU, etc.) asociado a un
+    Distribuidor activo.
     """
-    registration_request = models.ForeignKey(
-        registration_request.RegistrationRequest,
+    ESTADO_CHOICES = [
+        ('aprobado', 'Aprobado'),
+        ('rechazado', 'Rechazado'),
+    ]
+    
+    distribuidor = models.ForeignKey(
+        Distributor,
         on_delete=models.CASCADE,
-        related_name="documentos",
-        help_text="Solicitud asociada al documento."
+        related_name="documentos", # Permite hacer `distributor.documentos.all()`
+        help_text="El distribuidor al que pertenece este documento."
     )
+    
     tipo_documento = models.CharField(
-        max_length=100,
-        help_text="Tipo de documento (ej. 'Contrato', 'Identificación')."
-    )
-    archivo = models.FileField(
-        upload_to='distribuidor/documentos/',
-        help_text="Archivo del documento."
-    )
-    estado = models.CharField(
         max_length=50,
-        blank=True,
-        null=True,
-        default=None,
-        help_text="Estado de verificación: NULL=no verificado, 'verificado'=aprobado, 'rechazado'=desestimado."
+        help_text="Tipo de documento (ej. 'rtu', 'dpi_frontal')."
+    )
+    
+    archivo = models.FileField(
+        upload_to="distributor_documents/",
+        help_text="El archivo físico almacenado."
+    )
+    
+    estado = models.CharField(
+        max_length=20,
+        choices=ESTADO_CHOICES,
+        default='aprobado',
+        help_text="Estado del documento (copiado de la solicitud)."
     )
 
     def __str__(self):
-        """
-        Devuelve una representación en cadena del documento.
-        """
-        return f"{self.tipo_documento} - {self.registration_request.nombres}"
+        return f"{self.tipo_documento} de {self.distribuidor.negocio_nombre}"
 
     class Meta:
-        verbose_name = "Documento"
-        verbose_name_plural = "Documentos"
+        verbose_name = "Documento de Distribuidor"
+        verbose_name_plural = "Documentos de Distribuidor"

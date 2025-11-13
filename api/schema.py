@@ -13,6 +13,7 @@ from .graphql.mutations.users import UserMutations
 from .graphql.mutations.roles import RolMutations
 from .graphql.mutations.clients import ClientMutations
 from .graphql.mutations.distributors import DistributorMutations
+from .graphql.mutations.registration import RegistrationRequestMutations
 
 class Query(
     ItemQuery, 
@@ -35,7 +36,8 @@ class Mutation(
     UserMutations, 
     RolMutations, 
     ClientMutations, 
-    DistributorMutations, 
+    DistributorMutations,
+    RegistrationRequestMutations,
     graphene.ObjectType):
     """
     Combina todas las mutaciones de la aplicación.

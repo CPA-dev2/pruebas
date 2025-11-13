@@ -1,128 +1,181 @@
-// frontend/src/pages/public/DistributorRegistration/steps/DocumentsStep.jsx
+/**
+ * @file Paso 5 del formulario: Carga de Documentos.
+ * Maneja su propio Formik y guarda los objetos File crudos en el contexto.
+ * Esta arquitectura es de alto rendimiento y no bloquea el navegador.
+ */
 import React from 'react';
+import { Formik, Form, ErrorMessage } from 'formik';
 import * as Yup from 'yup';
 import {
   VStack, Grid, GridItem, Alert, AlertIcon, 
-  Heading
+  Heading, Button, Flex, Divider, FormErrorMessage
 } from '@chakra-ui/react';
 import FileUploader from '../../../../components/Componentes_reutilizables/FileUpload/FileUploader';
-// Importamos la constante de tipos de documento
+import { useRegistrationForm } from '../../../context/RegistrationContext';
 import { DOCUMENT_TYPES } from '../../../../components/Componentes_reutilizables/FileUpload/FileValidation';
 
-/**
- * Schema de validación de Yup para el paso de documentos.
- * Valida que cada archivo requerido sea un objeto 'File' válido.
- */
+// 1. Schema de validación local del paso
+// Valida que cada archivo sea un objeto 'File' (usando Yup.mixed())
 export const validationSchema = Yup.object().shape({
   documentos: Yup.object().shape({
-    [DOCUMENT_TYPES.DPI_FRONTAL]: Yup.mixed().required('El DPI frontal es obligatorio.'),
-    [DOCUMENT_TYPES.DPI_POSTERIOR]: Yup.mixed().required('El DPI posterior es obligatorio.'),
-    [DOCUMENT_TYPES.RTU]: Yup.mixed().required('El RTU es obligatorio.'),
-    [DOCUMENT_TYPES.PATENTE_COMERCIO]: Yup.mixed().required('La Patente de Comercio es obligatoria.'),
-    [DOCUMENT_TYPES.FACTURA_SERVICIO]: Yup.mixed().required('La factura de servicio es obligatoria.'),
+    [DOCUMENT_TYPES.DPI_FRONTAL]: Yup.mixed().nullable().required('El DPI frontal es obligatorio.'),
+    [DOCUMENT_TYPES.DPI_POSTERIOR]: Yup.mixed().nullable().required('El DPI posterior es obligatorio.'),
+    [DOCUMENT_TYPES.RTU]: Yup.mixed().nullable().required('El RTU es obligatorio.'),
+    [DOCUMENT_TYPES.PATENTE_COMERCIO]: Yup.mixed().nullable().required('La Patente de Comercio es obligatoria.'),
+    [DOCUMENT_TYPES.FACTURA_SERVICIO]: Yup.mixed().nullable().required('La factura de servicio es obligatoria.'),
   }),
 });
 
-/**
- * `DocumentsStep` es el componente para el paso de carga de documentos
- * en el formulario de registro de distribuidores.
- */
-const DocumentsStep = ({ values, setFieldValue, errors, touched }) => {
+const DocumentsStep = () => {
+  // 2. Obtener datos y acciones del contexto
+  const { formData, updateFormData, goToNext, goToPrevious } = useRegistrationForm();
 
   /**
-   * Manejador para cuando se selecciona un archivo en FileUploader.
-   * REFACTOR: Ya no convierte a Base64. Almacena el objeto File crudo.
-   * @param {string} fileKey - El `documentType` (ej. 'rtu').
-   * @param {File} file - El objeto File seleccionado por el usuario.
+   * Manejador de envío local: Guarda los archivos en el contexto y avanza.
    */
-  const handleFileChange = (fileKey, file) => {
-    // Almacena el objeto File directamente en el estado de Formik.
-    // Esto es instantáneo y eficiente.
-    setFieldValue(`documentos.${fileKey}`, file);
-  };
-
-  /**
-   * Manejador para cuando se remueve un archivo.
-   * @param {string} fileKey - El `documentType` (ej. 'rtu').
-   */
-  const handleFileRemove = (fileKey) => {
-    setFieldValue(`documentos.${fileKey}`, null);
+  const handleSubmit = (values, { setSubmitting }) => {
+    updateFormData(values); // Guarda el objeto { documentos: { ... } }
+    goToNext();
+    setSubmitting(false);
   };
 
   return (
-    <VStack spacing={6} align="stretch">
-      <Heading size="lg" mb={4} fontWeight="semibold">
-        Documentación Requerida
-      </Heading>
-      
-      <Grid templateColumns={{ base: '1fr', md: 'repeat(2, 1fr)' }} gap={6}>
-        
-        {/* REFACTOR: Cada FileUploader ahora usa las constantes DOCUMENT_TYPES */}
-        <GridItem>
-          <FileUploader
-            label="DPI (Lado Frontal) *"
-            documentType={DOCUMENT_TYPES.DPI_FRONTAL}
-            file={values.documentos[DOCUMENT_TYPES.DPI_FRONTAL]}
-            error={errors.documentos?.[DOCUMENT_TYPES.DPI_FRONTAL] && touched.documentos?.[DOCUMENT_TYPES.DPI_FRONTAL] ? errors.documentos[DOCUMENT_TYPES.DPI_FRONTAL] : null}
-            onFileSelect={(file) => handleFileChange(DOCUMENT_TYPES.DPI_FRONTAL, file)}
-            onFileRemove={() => handleFileRemove(DOCUMENT_TYPES.DPI_FRONTAL)}
-          />
-        </GridItem>
+    // 3. Formik local para este paso
+    <Formik
+      initialValues={{
+        documentos: formData.documentos,
+      }}
+      validationSchema={validationSchema}
+      onSubmit={handleSubmit}
+    >
+      {({ values, errors, touched, setFieldValue, isSubmitting }) => (
+        <Form>
+          <VStack spacing={6} align="stretch">
+            <Heading size="lg" mb={4} fontWeight="semibold">
+              Documentación Requerida
+            </Heading>
+            
+            <Grid templateColumns={{ base: '1fr', md: 'repeat(2, 1fr)' }} gap={6}>
+              
+              {/* REFACTOR: La lógica de 'handleFileChange' ahora es más simple
+                   y se pasa directamente. Guarda el objeto File, no Base64. */}
+              
+              <GridItem>
+                <FileUploader
+                  label="DPI (Lado Frontal) *"
+                  documentType={DOCUMENT_TYPES.DPI_FRONTAL}
+                  file={values.documentos[DOCUMENT_TYPES.DPI_FRONTAL]}
+                  error={errors.documentos?.[DOCUMENT_TYPES.DPI_FRONTAL] && touched.documentos?.[DOCUMENT_TYPES.DPI_FRONTAL]}
+                  onFileSelect={(file) => setFieldValue(`documentos.${DOCUMENT_TYPES.DPI_FRONTAL}`, file)}
+                  onFileRemove={() => setFieldValue(`documentos.${DOCUMENT_TYPES.DPI_FRONTAL}`, null)}
+                />
+                {/* Mostrar error de Yup si existe */}
+                {errors.documentos?.[DOCUMENT_TYPES.DPI_FRONTAL] && touched.documentos?.[DOCUMENT_TYPES.DPI_FRONTAL] && (
+                  <FormErrorMessage mt={2} d="block">
+                    {errors.documentos[DOCUMENT_TYPES.DPI_FRONTAL]}
+                  </FormErrorMessage>
+                )}
+              </GridItem>
 
-        <GridItem>
-          <FileUploader
-            label="DPI (Lado Posterior) *"
-            documentType={DOCUMENT_TYPES.DPI_POSTERIOR}
-            file={values.documentos[DOCUMENT_TYPES.DPI_POSTERIOR]}
-            error={errors.documentos?.[DOCUMENT_TYPES.DPI_POSTERIOR] && touched.documentos?.[DOCUMENT_TYPES.DPI_POSTERIOR] ? errors.documentos[DOCUMENT_TYPES.DPI_POSTERIOR] : null}
-            onFileSelect={(file) => handleFileChange(DOCUMENT_TYPES.DPI_POSTERIOR, file)}
-            onFileRemove={() => handleFileRemove(DOCUMENT_TYPES.DPI_POSTERIOR)}
-          />
-        </GridItem>
+              <GridItem>
+                <FileUploader
+                  label="DPI (Lado Posterior) *"
+                  documentType={DOCUMENT_TYPES.DPI_POSTERIOR}
+                  file={values.documentos[DOCUMENT_TYPES.DPI_POSTERIOR]}
+                  error={errors.documentos?.[DOCUMENT_TYPES.DPI_POSTERIOR] && touched.documentos?.[DOCUMENT_TYPES.DPI_POSTERIOR]}
+                  onFileSelect={(file) => setFieldValue(`documentos.${DOCUMENT_TYPES.DPI_POSTERIOR}`, file)}
+                  onFileRemove={() => setFieldValue(`documentos.${DOCUMENT_TYPES.DPI_POSTERIOR}`, null)}
+                />
+                {errors.documentos?.[DOCUMENT_TYPES.DPI_POSTERIOR] && touched.documentos?.[DOCUMENT_TYPES.DPI_POSTERIOR] && (
+                  <FormErrorMessage mt={2} d="block">
+                    {errors.documentos[DOCUMENT_TYPES.DPI_POSTERIOR]}
+                  </FormErrorMessage>
+                )}
+              </GridItem>
 
-        <GridItem>
-          <FileUploader
-            label="RTU (Actualizado) *"
-            documentType={DOCUMENT_TYPES.RTU}
-            file={values.documentos[DOCUMENT_TYPES.RTU]}
-            error={errors.documentos?.[DOCUMENT_TYPES.RTU] && touched.documentos?.[DOCUMENT_TYPES.RTU] ? errors.documentos[DOCUMENT_TYPES.RTU] : null}
-            onFileSelect={(file) => handleFileChange(DOCUMENT_TYPES.RTU, file)}
-            onFileRemove={() => handleFileRemove(DOCUMENT_TYPES.RTU)}
-          />
-        </GridItem>
+              <GridItem>
+                <FileUploader
+                  label="RTU (Actualizado) *"
+                  documentType={DOCUMENT_TYPES.RTU}
+                  file={values.documentos[DOCUMENT_TYPES.RTU]}
+                  error={errors.documentos?.[DOCUMENT_TYPES.RTU] && touched.documentos?.[DOCUMENT_TYPES.RTU]}
+                  onFileSelect={(file) => setFieldValue(`documentos.${DOCUMENT_TYPES.RTU}`, file)}
+                  onFileRemove={() => setFieldValue(`documentos.${DOCUMENT_TYPES.RTU}`, null)}
+                />
+                {errors.documentos?.[DOCUMENT_TYPES.RTU] && touched.documentos?.[DOCUMENT_TYPES.RTU] && (
+                  <FormErrorMessage mt={2} d="block">
+                    {errors.documentos[DOCUMENT_TYPES.RTU]}
+                  </FormErrorMessage>
+                )}
+              </GridItem>
 
-        <GridItem>
-          <FileUploader
-            label="Patente de Comercio *"
-            documentType={DOCUMENT_TYPES.PATENTE_COMERCIO}
-            file={values.documentos[DOCUMENT_TYPES.PATENTE_COMERCIO]}
-            error={errors.documentos?.[DOCUMENT_TYPES.PATENTE_COMERCIO] && touched.documentos?.[DOCUMENT_TYPES.PATENTE_COMERCIO] ? errors.documentos[DOCUMENT_TYPES.PATENTE_COMERCIO] : null}
-            onFileSelect={(file) => handleFileChange(DOCUMENT_TYPES.PATENTE_COMERCIO, file)}
-            onFileRemove={() => handleFileRemove(DOCUMENT_TYPES.PATENTE_COMERCIO)}
-          />
-        </GridItem>
-        
-        <GridItem>
-          <FileUploader
-            label="Factura Reciente (Luz, Agua, Tel) *"
-            documentType={DOCUMENT_TYPES.FACTURA_SERVICIO}
-            file={values.documentos[DOCUMENT_TYPES.FACTURA_SERVICIO]}
-            error={errors.documentos?.[DOCUMENT_TYPES.FACTURA_SERVICIO] && touched.documentos?.[DOCUMENT_TYPES.FACTURA_SERVICIO] ? errors.documentos[DOCUMENT_TYPES.FACTURA_SERVICIO] : null}
-            onFileSelect={(file) => handleFileChange(DOCUMENT_TYPES.FACTURA_SERVICIO, file)}
-            onFileRemove={() => handleFileRemove(DOCUMENT_TYPES.FACTURA_SERVICIO)}
-          />
-        </GridItem>
+              <GridItem>
+                <FileUploader
+                  label="Patente de Comercio *"
+                  documentType={DOCUMENT_TYPES.PATENTE_COMERCIO}
+                  file={values.documentos[DOCUMENT_TYPES.PATENTE_COMERCIO]}
+                  error={errors.documentos?.[DOCUMENT_TYPES.PATENTE_COMERCIO] && touched.documentos?.[DOCUMENT_TYPES.PATENTE_COMERCIO]}
+                  onFileSelect={(file) => setFieldValue(`documentos.${DOCUMENT_TYPES.PATENTE_COMERCIO}`, file)}
+                  onFileRemove={() => setFieldValue(`documentos.${DOCUMENT_TYPES.PATENTE_COMERCIO}`, null)}
+                />
+                {errors.documentos?.[DOCUMENT_TYPES.PATENTE_COMERCIO] && touched.documentos?.[DOCUMENT_TYPES.PATENTE_COMERCIO] && (
+                  <FormErrorMessage mt={2} d="block">
+                    {errors.documentos[DOCUMENT_TYPES.PATENTE_COMERCIO]}
+                  </FormErrorMessage>
+                )}
+              </GridItem>
+              
+              <GridItem>
+                <FileUploader
+                  label="Factura Reciente (Luz, Agua, Tel) *"
+                  documentType={DOCUMENT_TYPES.FACTURA_SERVICIO}
+                  file={values.documentos[DOCUMENT_TYPES.FACTURA_SERVICIO]}
+                  error={errors.documentos?.[DOCUMENT_TYPES.FACTURA_SERVICIO] && touched.documentos?.[DOCUMENT_TYPES.FACTURA_SERVICIO]}
+                  onFileSelect={(file) => setFieldValue(`documentos.${DOCUMENT_TYPES.FACTURA_SERVICIO}`, file)}
+                  onFileRemove={() => setFieldValue(`documentos.${DOCUMENT_TYPES.FACTURA_SERVICIO}`, null)}
+                />
+                {errors.documentos?.[DOCUMENT_TYPES.FACTURA_SERVICIO] && touched.documentos?.[DOCUMENT_TYPES.FACTURA_SERVICIO] && (
+                  <FormErrorMessage mt={2} d="block">
+                    {errors.documentos[DOCUMENT_TYPES.FACTURA_SERVICIO]}
+                  </FormErrorMessage>
+                )}
+              </GridItem>
 
-      </Grid>
-      
-      {/* Error general */}
-      {typeof errors.documentos === 'string' && (
-        <Alert status="error" borderRadius="md">
-          <AlertIcon />
-          {errors.documentos}
-        </Alert>
+            </Grid>
+            
+            {/* Error general (si el schema lo envía como string) */}
+            <ErrorMessage name="documentos">
+              {msg => (
+                typeof msg === 'string' && (
+                  <Alert status="error" borderRadius="md">
+                    <AlertIcon />
+                    {msg}
+                  </Alert>
+                )
+              )}
+            </ErrorMessage>
+
+            {/* 4. Botones de navegación locales */}
+            <Divider my={10} />
+            <Flex mt={6} justify="space-between">
+              <Button
+                onClick={goToPrevious}
+                isDisabled={isSubmitting}
+              >
+                Atrás
+              </Button>
+              <Button
+                type="submit"
+                colorScheme="orange"
+                isLoading={isSubmitting}
+              >
+                Siguiente
+              </Button>
+            </Flex>
+          </VStack>
+        </Form>
       )}
-    </VStack>
+    </Formik>
   );
 };
 

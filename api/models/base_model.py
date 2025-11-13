@@ -24,11 +24,6 @@ class BaseModel(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     modified = models.DateTimeField(auto_now=True)
 
-    class Meta:
-        """  Opciones del modelo """
-        abstract = True
-        ordering = ['id']
-
     def delete(self, using=None, keep_parents=False):
         """
         Sobrescribe el método delete para implementar el borrado suave.
