@@ -33,14 +33,6 @@ __pycache__/
 *.sqlite3-journal
 pip-log.txt
 
-# Archivos multimedia subidos por usuarios
-media/
-
-
-# --- Archivos Multimedia (Media Files) --- #
-# Ignora la carpeta de archivos subidos por usuarios
-media/
-
 
 # --- Archivos de Configuración de IDEs y Editores --- #
 # Ignora configuraciones específicas de tu entorno de desarrollo local.

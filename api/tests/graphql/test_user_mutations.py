@@ -13,13 +13,11 @@ def test_create_user_by_superuser(superuser_auth_headers, api_client, rol_editor
     """
     rol_id = to_global_id('RolType', rol_editor.pk)
     mutation = """
-        mutation CreateUser($username: String!, $password: String!, $email: String!, $firstName: String!, $lastName: String!, $rolId: ID) {
-            createUser(username: $username, password: $password, email: $email, firstName: $firstName, lastName: $lastName, rolId: $rolId) {
+        mutation CreateUser($username: String!, $password: String!, $email: String!, $rolId: ID) {
+            createUser(username: $username, password: $password, email: $email, rolId: $rolId) {
                 user {
                     username
                     email
-                    firstName
-                    lastName
                     rol {
                         nombre
                     }
@@ -31,14 +29,12 @@ def test_create_user_by_superuser(superuser_auth_headers, api_client, rol_editor
         "username": "new.user",
         "password": "password123",
         "email": "new.user@example.com",
-        "firstName": "Nombre_User",
-        "lastName": "Apellido_User",
         "rolId": rol_id
     }
     data = {"query": mutation, "variables": json.dumps(variables)}
 
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json", **superuser_auth_headers
+        "/api/graphql/", json.dumps(data), content_type="application/json", **superuser_auth_headers
     )
 
     content = response.json()
@@ -49,46 +45,31 @@ def test_create_user_by_superuser(superuser_auth_headers, api_client, rol_editor
     assert user_data['rol']['nombre'] == "Editor"
     assert Usuario.objects.filter(username="new.user").exists()
 
-
 def test_create_user_by_non_superuser(editor_auth_headers, api_client):
     """
     Verifica que un usuario normal no puede crear otros usuarios.
     """
     mutation = """
-        mutation CreateUser($username: String!, $password: String!, $email: String!, $firstName: String!, $lastName: String!, $rolId: ID) {
-            createUser(username: $username, password: $password, email: $email, firstName: $firstName, lastName: $lastName, rolId: $rolId) {
+        mutation CreateUser($username: String!, $password: String!, $email: String!) {
+            createUser(username: $username, password: $password, email: $email) {
                 user {
-                    username
-                    email
-                    firstName
-                    lastName
-                    rol {
-                        nombre
-                    }
+                    id
                 }
             }
         }
     """
-    variables = {
-        "username": "hacker",
-        "password": "123",
-        "email": "hacker@example.com",
-        "firstName": "Nombre_Hacker",
-        "lastName": "Apellido_Hacker",
-        "rolId": None
-    }
+    variables = {"username": "hacker", "password": "123", "email": "hacker@example.com"}
     data = {"query": mutation, "variables": json.dumps(variables)}
 
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json", **editor_auth_headers
+        "/api/graphql/", json.dumps(data), content_type="application/json", **editor_auth_headers
     )
 
     content = response.json()
     assert "errors" in content
-    assert content['errors'][0]['message'] == "No tienes permisos de administrador para realizar esta acción."
+    assert content['errors'][0]['message'] == "No tienes permiso para realizar esta acción."
 
 # --- Pruebas de UpdateUserMutation ---
-
 
 def test_update_user_by_superuser(superuser_auth_headers, api_client, viewer_user, rol_editor):
     """
@@ -114,7 +95,7 @@ def test_update_user_by_superuser(superuser_auth_headers, api_client, viewer_use
     data = {"query": mutation, "variables": json.dumps(variables)}
 
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json", **superuser_auth_headers
+        "/api/graphql/", json.dumps(data), content_type="application/json", **superuser_auth_headers
     )
 
     content = response.json()
@@ -128,7 +109,6 @@ def test_update_user_by_superuser(superuser_auth_headers, api_client, viewer_use
     assert viewer_user.rol.nombre == "Editor"
 
 # --- Pruebas de DeleteUserMutation ---
-
 
 def test_delete_user_by_superuser(superuser_auth_headers, api_client, editor_user):
     """
@@ -146,7 +126,7 @@ def test_delete_user_by_superuser(superuser_auth_headers, api_client, editor_use
     data = {"query": mutation, "variables": json.dumps(variables)}
 
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json", **superuser_auth_headers
+        "/api/graphql/", json.dumps(data), content_type="application/json", **superuser_auth_headers
     )
 
     content = response.json()
@@ -155,7 +135,6 @@ def test_delete_user_by_superuser(superuser_auth_headers, api_client, editor_use
 
     editor_user.refresh_from_db()
     assert editor_user.is_deleted is True
-
 
 def test_delete_self_user_fails(superuser_auth_headers, api_client, superuser):
     """
@@ -173,7 +152,7 @@ def test_delete_self_user_fails(superuser_auth_headers, api_client, superuser):
     data = {"query": mutation, "variables": json.dumps(variables)}
 
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json", **superuser_auth_headers
+        "/api/graphql/", json.dumps(data), content_type="application/json", **superuser_auth_headers
     )
 
     content = response.json()

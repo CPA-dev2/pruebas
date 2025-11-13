@@ -2,17 +2,17 @@ import { mode } from "@chakra-ui/theme-tools";
 
 export const globalStyles = {
   colors: {
-    // Paleta principal naranja vibrante y energética
+    // Paleta principal inspirada en el sector salud (Azules y Verdes azulados)
     brand: {
-      100: "#FFF4E6", // Naranja muy claro (Fondo suave)
-      200: "#FFE9CC", // Naranja claro  
-      300: "#FFDDB3", // Naranja suave
-      400: "#FFD099", // Naranja intermedio claro
-      500: "#FF8C42", // Naranja principal MÁS VIBRANTE (Color de marca)
-      600: "#FF7A28", // Naranja más intenso
-      700: "#FF690D", // Naranja vibrante
-      800: "#F55A00", // Naranja profundo
-      900: "#fa5e03", // Naranja muy profundo (color base)
+      100: "#E0F2F1", // Teal muy claro (Fondo suave)
+      200: "#B2DFDB", // Teal claro
+      300: "#80CBC4", // Teal suave
+      400: "#4DB6AC", // Teal intermedio
+      500: "#009688", // Teal principal (Color de marca)
+      600: "#00897B", // Teal oscuro
+      700: "#00796B", // Teal más oscuro
+      800: "#00695C", // Teal profundo
+      900: "#004D40", // Teal muy profundo
     },
     // Paleta secundaria para acentos o secciones específicas (Azul calmado)
     secondary: {
@@ -24,7 +24,7 @@ export const globalStyles = {
       600: "#2196F3",
       700: "#1E88E5",
       800: "#1976D2",
-      900: "#606263ff",
+      900: "#1565C0",
     },
     // Grises neutros y profesionales para texto y fondos
     secondaryGray: {
@@ -49,7 +49,7 @@ export const globalStyles = {
       600: "#082eab",
       700: "#062280", // Fondo principal del modo oscuro
       800: "#031654",
-      900: "#00030aff",
+      900: "#010b28",
     },
     // Colores de estado semánticos
     success: {
@@ -75,10 +75,10 @@ export const globalStyles = {
         letterSpacing: "-0.5px",
       },
       ".chakra-modal__content-container": {
-        zIndex: "1400 !important",
+        zIndex: "500 !important",
       },
       ".chakra-modal__overlay": {
-        zIndex: "1400 !important",
+        zIndex: "50 !important",
       },
       input: {
         color: mode("secondaryGray.800", "white")(props),

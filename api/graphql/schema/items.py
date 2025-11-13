@@ -5,7 +5,6 @@ from graphene_django.filter import DjangoFilterConnectionField
 
 from api.models import Item
 from ..filters import ItemFilter
-from ..permissions import check_is_authenticated
 
 
 class ItemNode(DjangoObjectType):
@@ -54,8 +53,7 @@ class ItemQuery(graphene.ObjectType):
 
         Aplica los filtros y devuelve un queryset de items activos.
         """
-        check_is_authenticated(info.context.user)
-        return Item.objects.filter(is_active=True)
+        return Item.objects.filter(is_deleted=False)
         
     def resolve_items_total_count(self, info, **kwargs):
         """
@@ -64,9 +62,8 @@ class ItemQuery(graphene.ObjectType):
         Calcula y devuelve el número total de items activos que coinciden
         con los filtros proporcionados.
         """
-        check_is_authenticated(info.context.user)
         filterset = ItemFilter(
             data=kwargs, 
-            queryset=Item.objects.filter(is_active=True)
+            queryset=Item.objects.filter(is_deleted=False)
         )
         return filterset.qs.count()

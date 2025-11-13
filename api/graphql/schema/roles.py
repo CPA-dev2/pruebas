@@ -31,12 +31,6 @@ class RolType(DjangoObjectType):
             self.can_create_items,
             self.can_update_items,
             self.can_delete_items,
-            self.can_create_clients,
-            self.can_update_clients,
-            self.can_delete_clients,
-            self.can_update_distributors,
-            self.can_delete_distributors,
-            self.can_view_auditlogs,
         ]
         return sum(1 for p in permissions if p)
 

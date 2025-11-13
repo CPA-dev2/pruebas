@@ -47,9 +47,8 @@ INSTALLED_APPS = [
     'graphene_django',
     'debug_toolbar',
     'django_extensions',
-    'django_celery_results',
     'api',  # Your app
-    "graphql_jwt.refresh_token"
+    "graphql_jwt.refresh_token",
 ]
 
 # Configuración de GraphQL
@@ -199,29 +198,14 @@ LOGGING = {
             'level': 'DEBUG',
             'propagate': False,
         },
-        'graphene_django': {
-            'handlers': ['console'],
-            'level': 'DEBUG',
-            'propagate': False,
-        },
-        'graphql': {
-            'handlers': ['console'],
-            'level': 'DEBUG',
-            'propagate': False,
-        },
-        'django.request': {
-            'handlers': ['console'],
-            'level': 'DEBUG',
-            'propagate': False,
-        },
     },
 }
 
 AUTH_USER_MODEL = 'api.Usuario'
 
 # Internationalization
-LANGUAGE_CODE = 'es-gt'  # Español de Guatemala
-TIME_ZONE = 'America/Guatemala'  # Zona horaria de Guatemala (CST -0600)
+LANGUAGE_CODE = 'en-us'
+TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
@@ -232,12 +216,3 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Ya no se usan configuraciones locales, todo se maneja con variables de entorno.
-
-# Configuración de Celery
-CELERY_BROKER_URL = os.getenv('VAR_CELERY_BROKER_URL')
-CELERY_RESULT_BACKEND = os.getenv('VAR_CELERY_RESULT_BACKEND')
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = os.getenv('VAR_CELERY_TASK_SERIALIZER')
-CELERY_RESULT_SERIALIZER = os.getenv('VAR_CELERY_RESULT_SERIALIZER')
-CELERY_TIMEZONE = os.getenv('VAR_CELERY_TIMEZONE')
-CELERY_TASK_TRACK_STARTED = os.getenv('VAR_CELERY_TASK_TRACK_STARTED', 'True') == 'True'

@@ -1,11 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Box, Button, useDisclosure, Heading, Flex, Card, CardBody, CardHeader, Text, Spinner, Center, Divider, VStack, Icon, useColorModeValue
 } from "@chakra-ui/react";
 import { AddIcon } from "@chakra-ui/icons";
 import { CgFileDocument } from "react-icons/cg";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { showSuccess, handleError } from "../../../services/NotificationService";
 import RoleService from "../../../services/RoleService";
 import GenericTable from "../../../components/Componentes_reutilizables/GenericTable";
@@ -13,138 +12,156 @@ import GenericModal from "../../../components/Componentes_reutilizables/GenericM
 import RoleForm from "./RoleForm";
 import Paginacion from "../../../components/Componentes_reutilizables/Paginacion";
 import Filtros from "../../../components/Componentes_reutilizables/Filtros";
-import { usePagination } from "../../../hooks/usePagination"; // 1. Importar hook
+
+const ITEMS_PER_PAGE = 10;
 
 /**
- * `RolesPage`
- * Página para la gestión (CRUD) de la entidad "Roles".
+ * `RolesPage` es el componente principal para la gestión de roles.
+ *
+ * Se encarga de:
+ * - Listar los roles existentes en una tabla paginada y filtrable.
+ * - Permitir la creación de nuevos roles a través de un modal.
+ * - Permitir la eliminación de roles existentes.
+ * - Navegar a la página de detalle/edición de un rol.
  */
 const RolesPage = () => {
   const navigate = useNavigate();
   const { isOpen, onOpen, onClose } = useDisclosure();
   const textColor = useColorModeValue("gray.500", "gray.400");
-  const queryClient = useQueryClient();
+  
+  // Estado para la lista de roles y su paginación.
+  const [roles, setRoles] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [pageInfo, setPageInfo] = useState({});
+  const [cursorStack, setCursorStack] = useState([null]);
+  const [currentPage, setCurrentPage] = useState(1);
 
-  // --- Estado Local ---
+  // Estado para el modal de creación/eliminación.
   const [selectedRole, setSelectedRole] = useState(null);
   const [modalMode, setModalMode] = useState("create");
-  const initialFilters = { search: "" }; // Filtros para roles es más simple
+
+  // Estado para los indicadores de carga.
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Estado para los filtros.
+  const initialFilters = { search: "" };
   const [filters, setFilters] = useState(initialFilters);
   const [appliedFilters, setAppliedFilters] = useState(initialFilters);
 
-  // --- Hooks de Paginación y Datos ---
-  
-  // 2. Usar el hook de paginación
-  const { currentPage, currentCursor, itemsPerPage, nextPage, prevPage, resetPagination } = usePagination(10);
-
   /**
-   * 3. Función de Fetching para React Query
+   * Obtiene los roles desde el servicio, aplicando filtros y paginación.
+   * @param {object} variables - Opciones de paginación para GraphQL (first, after).
    */
-  const fetchRoles = async ({ queryKey }) => {
-    // queryKey es ['roles', appliedFilters, currentCursor]
-    const [_key, filters, cursor] = queryKey;
-    
-    const cleanedFilters = Object.fromEntries(
-      Object.entries(filters).filter(([_, value]) => value !== "" && value !== null)
-    );
-    const variables = { ...cleanedFilters, first: itemsPerPage, after: cursor };
-    const response = await RoleService.getRoles(variables);
-    return response.data.data; // Devuelve { allRoles, rolesTotalCount }
-  };
+  const fetchRoles = useCallback(async (variables) => {
+    setIsLoading(true);
+    try {
+      const cleanedFilters = Object.fromEntries(
+        Object.entries(appliedFilters).filter(([_, value]) => value !== "" && value !== null)
+      );
+      const response = await RoleService.getRoles({ ...cleanedFilters, ...variables });
+      setTotalCount(response.data.data.rolesTotalCount || 0);
+      const { edges, pageInfo: newPageInfo } = response.data.data.allRoles;
+      setRoles(edges.map((edge) => edge.node));
+      setPageInfo(newPageInfo);
+    } catch (error) {
+      handleError(error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [appliedFilters]);
 
-  // 4. Hook `useQuery`
-  const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['roles', appliedFilters, currentCursor],
-    queryFn: fetchRoles,
-    keepPreviousData: true,
-    onError: (error) => handleError(error),
-  });
+  // Carga inicial de datos.
+  useEffect(() => { fetchRoles({ first: ITEMS_PER_PAGE }); }, [fetchRoles]);
 
-  // --- Extracción de Datos ---
-  const roles = data?.allRoles?.edges.map((edge) => edge.node) || [];
-  const totalCount = data?.rolesTotalCount || 0;
-  const pageInfo = data?.allRoles?.pageInfo || {};
-
-  // --- Mutaciones ---
-  // 5. Hooks `useMutation`
-
-  const handleMutationSuccess = (message) => {
-    showSuccess(message);
-    resetPagination();
-    queryClient.invalidateQueries(['roles']); // Invalida caché de roles
-    handleCloseModal();
-  };
-
-  const createRoleMutation = useMutation({
-    // Solo pasamos los valores que espera el formulario de creación
-    mutationFn: (values) => RoleService.createRole({ 
-      nombre: values.nombre, 
-      isActive: values.isActive 
-    }),
-    onSuccess: (data, variables) => handleMutationSuccess(`Rol "${variables.nombre}" creado con éxito.`),
-    onError: handleError,
-  });
-
-  const deleteRoleMutation = useMutation({
-    mutationFn: RoleService.deleteRole,
-    onSuccess: () => handleMutationSuccess("El rol ha sido eliminado."),
-    onError: handleError,
-  });
-
-  // --- Handlers de UI ---
+  // --- Handlers para filtros y paginación ---
   const handleFilterChange = (e) => setFilters(prev => ({ ...prev, [e.target.name]: e.target.value }));
-  
   const applyFilters = () => {
     setAppliedFilters(filters);
-    resetPagination();
+    resetPaginationAndFetch();
   };
-  
   const clearFilters = () => {
     setFilters(initialFilters);
     setAppliedFilters(initialFilters);
-    resetPagination();
+    resetPaginationAndFetch();
+  };
+  const resetPaginationAndFetch = () => {
+    setCursorStack([null]);
+    setCurrentPage(1);
+    fetchRoles({ first: ITEMS_PER_PAGE });
   };
 
-  const handleOpenModal = (mode, role = null) => {
-    setModalMode(mode);
-    setSelectedRole(role);
-    onOpen();
-  };
-  
-  const handleCloseModal = () => {
-    setSelectedRole(null);
-    onClose();
-  };
+  // --- Handlers para el modal ---
+  const handleOpenModal = (mode, role = null) => { setModalMode(mode); setSelectedRole(role); onOpen(); };
+  const handleCloseModal = () => { setSelectedRole(null); onClose(); };
 
-  // Dispara la mutación de creación
-  const handleSubmit = (values) => {
-    createRoleMutation.mutate(values);
+  /**
+   * Gestiona el envío del formulario de creación de rol.
+   * La edición se maneja en una página separada (`RoleEditPage`).
+   */
+  const handleSubmit = async (values) => {
+    if (modalMode !== 'create') return;
+    setIsSubmitting(true);
+    try {
+      await RoleService.createRole({ nombre: values.nombre, isActive: values.isActive });
+      showSuccess(`Rol "${values.nombre}" creado con éxito.`);
+      resetPaginationAndFetch();
+      handleCloseModal();
+    } catch (error) {
+      handleError(error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
   
-  // Dispara la mutación de borrado
-  const handleDeleteConfirm = () => {
-    if (selectedRole) {
-      deleteRoleMutation.mutate(selectedRole.id);
+  /**
+   * Confirma y ejecuta la eliminación de un rol.
+   */
+  const handleDeleteConfirm = async () => {
+    if (!selectedRole) return;
+    setIsSubmitting(true);
+    try {
+      await RoleService.deleteRole(selectedRole.id);
+      showSuccess("El rol ha sido eliminado.");
+      resetPaginationAndFetch();
+      handleCloseModal();
+    } catch (error) {
+      handleError(error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  // Handlers de Navegación
-  const handleViewRole = (role) => navigate(`/roles/${role.id}`); // Va a la pág de detalle
-  const handleEditRole = (role) => navigate(`/roles/edit/${role.id}`); // Va a la pág de edición
+  // --- Handlers de navegación ---
+  const handleNext = () => {
+    if (!pageInfo.hasNextPage) return;
+    setCursorStack(prev => [...prev, pageInfo.endCursor]);
+    setCurrentPage(prev => prev + 1);
+    fetchRoles({ first: ITEMS_PER_PAGE, after: pageInfo.endCursor });
+  };
+  const handlePrevious = () => {
+    if (currentPage === 1) return;
+    const prevCursor = cursorStack[cursorStack.length - 2] || null;
+    setCursorStack(prev => prev.slice(0, -1));
+    setCurrentPage(prev => prev - 1);
+    fetchRoles({ first: ITEMS_PER_PAGE, after: prevCursor });
+  };
+  const handleViewRole = (role) => navigate(`/roles/${role.id}`);
+  const handleEditRole = (role) => navigate(`/roles/edit/${role.id}`);
 
-  const handleNext = () => pageInfo.hasNextPage && nextPage(pageInfo.endCursor);
-  const handlePrevious = () => currentPage > 1 && prevPage();
-
+  // Configuración de las columnas para la tabla genérica.
+  const columns = [
+    { Header: "Nombre", accessor: "nombre" },
+    { Header: "Activo", accessor: "isActive" },
+    { Header: "Permisos Activos", accessor: "permissionCount" },
+    { Header: "Usuarios Asignados", accessor: "userCount" },
+  ];
+  
   const getModalTitle = () => {
     return modalMode === 'create' ? "Crear Nuevo Rol" : "Confirmar Eliminación";
   };
-  
-  // --- Renderizado ---
-  if (isLoading && roles.length === 0) {
-    return <Center h="calc(100vh - 200px)"><Spinner size="xl" /></Center>;
-  }
 
-  const isSubmitting = createRoleMutation.isLoading || deleteRoleMutation.isLoading;
+  if (isLoading && roles.length === 0) return <Center h="calc(100vh - 200px)"><Spinner size="xl" /></Center>;
 
   return (
     <Box>
@@ -161,18 +178,11 @@ const RolesPage = () => {
           </Flex>
         </CardHeader>
         
-        {/* Usamos el componente Filtros genérico, pero solo se usará el 'search' */}
-        <Filtros 
-          filters={filters} 
-          onFilterChange={handleFilterChange} 
-          onApplyFilters={applyFilters} 
-          onClearFilters={clearFilters} 
-          isLoading={isFetching} 
-        />
+        <Filtros filters={filters} onFilterChange={handleFilterChange} onApplyFilters={applyFilters} onClearFilters={clearFilters} isLoading={isLoading} />
         <Divider/>
 
         <CardBody pos="relative">
-          {isFetching && <OverlayLoader />}
+          {isLoading && <OverlayLoader />}
           {roles.length === 0 ? <EmptyState /> : (
             <GenericTable
               columns={columns}
@@ -183,19 +193,10 @@ const RolesPage = () => {
             />
           )}
         </CardBody>
-        
         {roles.length > 0 && (
           <>
             <Divider />
-            <Paginacion 
-              currentPage={currentPage} 
-              onAnterior={handlePrevious} 
-              onSiguiente={handleNext} 
-              isLoading={isFetching} 
-              itemCount={roles.length} 
-              totalCount={totalCount} 
-              itemsPerPage={itemsPerPage} 
-            />
+            <Paginacion currentPage={currentPage} onAnterior={handlePrevious} onSiguiente={handleNext} isLoading={isLoading} itemCount={roles.length} totalCount={totalCount} itemsPerPage={ITEMS_PER_PAGE} />
           </>
         )}
       </Card>
@@ -209,13 +210,7 @@ const RolesPage = () => {
         isConfirming={isSubmitting}
       >
         {modalMode === 'create' ? (
-          // El formulario de creación de rol solo necesita los campos básicos
-          <RoleForm 
-            onSubmit={handleSubmit} 
-            isSubmitting={isSubmitting} 
-            isCreateMode={true} 
-            initialValues={{ nombre: "", isActive: true }} // Valores iniciales para creación
-          />
+          <RoleForm onSubmit={handleSubmit} isSubmitting={isSubmitting} isCreateMode={true} />
         ) : (
           <Text>¿Estás seguro de que deseas eliminar el rol "<b>{selectedRole?.nombre}</b>"?</Text>
         )}
@@ -224,29 +219,14 @@ const RolesPage = () => {
   );
 };
 
-// --- Constantes y Componentes de UI ---
+/**
+ * Muestra un spinner de carga superpuesto.
+ */
+const OverlayLoader = () => ( <Center pos="absolute" top="0" left="0" w="full" h="full" bg="whiteAlpha.700" zIndex="10"><Spinner size="xl" color="blue.500" /></Center> );
 
-const columns = [
-  { Header: "Nombre", accessor: "nombre" },
-  { Header: "Activo", accessor: "isActive" },
-  { Header: "Permisos Activos", accessor: "permissionCount" },
-  { Header: "Usuarios Asignados", accessor: "userCount" },
-];
-
-const OverlayLoader = () => ( 
-  <Center pos="absolute" top="0" left="0" w="full" h="full" bg="whiteAlpha.700" zIndex="10">
-    <Spinner size="xl" color="blue.500" />
-  </Center> 
-);
-
-const EmptyState = () => ( 
-  <Center p={10}>
-    <VStack>
-      <Icon as={CgFileDocument} boxSize={12} color="gray.400" />
-      <Heading size="md" color="gray.600">No se encontraron roles</Heading>
-      <Text color="gray.500">Intenta ajustar tus filtros o crea un nuevo rol.</Text>
-    </VStack>
-  </Center> 
-);
+/**
+ * Muestra un mensaje cuando no hay datos para mostrar en la tabla.
+ */
+const EmptyState = () => ( <Center p={10}><VStack><Icon as={CgFileDocument} boxSize={12} color="gray.400" /><Heading size="md" color="gray.600">No se encontraron roles</Heading><Text color="gray.500">Intenta ajustar tus filtros o crea un nuevo rol.</Text></VStack></Center> );
 
 export default RolesPage;

@@ -1,11 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Box, Button, useDisclosure, Heading, Flex, Card, CardBody, CardHeader, Text, Spinner, Center, VStack, Icon, useColorModeValue, Divider,
 } from "@chakra-ui/react";
 import { AddIcon } from "@chakra-ui/icons";
 import { CgFileDocument } from "react-icons/cg";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { showSuccess, handleError } from "../../../services/NotificationService";
 import UserService from "../../../services/UserServices";
 import GenericTable from "../../../components/Componentes_reutilizables/GenericTable";
@@ -13,150 +12,204 @@ import GenericModal from "../../../components/Componentes_reutilizables/GenericM
 import UserForm from "./UserForm";
 import Filtros from "../../../components/Componentes_reutilizables/Filtros";
 import Paginacion from "../../../components/Componentes_reutilizables/Paginacion";
-import { usePagination } from "../../../hooks/usePagination"; // 1. Importar hook
+
+const ITEMS_PER_PAGE = 10;
 
 /**
- * `UsersPage`
- * Página para la gestión completa (CRUD) de la entidad "Usuarios".
+ * `UsersPage` es el componente principal para la gestión de usuarios.
+ *
+ * Responsabilidades:
+ * - Listar usuarios del sistema en una tabla paginada y filtrable.
+ * - Obtener la lista de roles disponibles para asignarlos a los usuarios.
+ * - Gestionar las operaciones CRUD (Crear, Editar, Eliminar) para los usuarios a través de modales.
+ * - Navegar a la página de detalle de un usuario.
  */
 const UsersPage = () => {
   const navigate = useNavigate();
   const { isOpen, onOpen, onClose } = useDisclosure();
   const textColor = useColorModeValue("gray.500", "gray.400");
-  const queryClient = useQueryClient();
-
-  // --- Estado Local ---
+  
+  // Estados para la gestión de datos y UI.
+  const [users, setUsers] = useState([]);
+  const [roles, setRoles] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [pageInfo, setPageInfo] = useState({});
+  const [cursorStack, setCursorStack] = useState([null]);
+  const [currentPage, setCurrentPage] = useState(1);
   const [selectedUser, setSelectedUser] = useState(null);
   const [modalMode, setModalMode] = useState("create");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Estados para los filtros.
   const initialFilters = { search: "", isActive: "" };
   const [filters, setFilters] = useState(initialFilters);
   const [appliedFilters, setAppliedFilters] = useState(initialFilters);
 
-  // --- Hooks de Paginación y Datos ---
-  
-  // 2. Usar el hook de paginación
-  const { currentPage, currentCursor, itemsPerPage, nextPage, prevPage, resetPagination } = usePagination(10);
+  /**
+   * Obtiene la lista de usuarios aplicando los filtros y la paginación actuales.
+   * @param {object} variables - Opciones de paginación para GraphQL.
+   */
+  const fetchUsers = useCallback(async (variables) => {
+    setIsLoading(true);
+    try {
+      const cleanedFilters = Object.fromEntries(
+        Object.entries(appliedFilters).filter(([_, value]) => value !== "" && value !== null)
+      );
+      if (cleanedFilters.isActive === "true") cleanedFilters.isActive = true;
+      if (cleanedFilters.isActive === "false") cleanedFilters.isActive = false;
+
+      const response = await UserService.getUsers({ ...cleanedFilters, ...variables });
+      setTotalCount(response.data.data.usersTotalCount || 0);
+      const { edges, pageInfo: newPageInfo } = response.data.data.allUsers;
+      setUsers(edges.map((edge) => edge.node));
+      setPageInfo(newPageInfo);
+    } catch (error) {
+      handleError(error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [appliedFilters]);
 
   /**
-   * 3. Funciones de Fetching para React Query
+   * Obtiene la lista completa de roles para poblar el formulario de usuario.
    */
-  
-  // Query para la lista de roles (para el formulario)
-  // Esta query se cachea globalmente
-  const { data: rolesData } = useQuery({
-    queryKey: ['rolesList'],
-    queryFn: async () => {
+  const fetchRoles = useCallback(async () => {
+    try {
       const response = await UserService.getRolesList();
-      return response.data.data.allRoles.edges.map(edge => edge.node);
-    },
-    onError: () => handleError("No se pudieron cargar los roles."),
-    staleTime: 1000 * 60 * 5, // Cachear roles por 5 minutos
-  });
-  const roles = rolesData || [];
+      setRoles(response.data.data.allRoles.edges.map(edge => edge.node));
+    } catch (error) {
+      handleError("No se pudieron cargar los roles.");
+    }
+  }, []);
 
-  // Query para la lista de usuarios
-  const fetchUsers = async ({ queryKey }) => {
-    const [_key, filters, cursor] = queryKey;
-    const cleanedFilters = Object.fromEntries(
-      Object.entries(filters).filter(([_, value]) => value !== "" && value !== null)
-    );
-    if (cleanedFilters.isActive === "true") cleanedFilters.isActive = true;
-    if (cleanedFilters.isActive === "false") cleanedFilters.isActive = false;
-
-    const variables = { ...cleanedFilters, first: itemsPerPage, after: cursor };
-    const response = await UserService.getUsers(variables);
-    return response.data.data;
-  };
-
-  // 4. Hook `useQuery` para usuarios
-  const { data, isLoading: isLoadingUsers, isFetching } = useQuery({
-    queryKey: ['users', appliedFilters, currentCursor],
-    queryFn: fetchUsers,
-    keepPreviousData: true,
-    onError: (error) => handleError(error),
-  });
-
-  // --- Extracción de Datos ---
-  const users = data?.allUsers?.edges.map((edge) => edge.node) || [];
-  const totalCount = data?.usersTotalCount || 0;
-  const pageInfo = data?.allUsers?.pageInfo || {};
-
-  // --- Mutaciones ---
-  // 5. Hooks `useMutation`
+  // Efecto para la carga inicial de datos y para recargar cuando cambian los filtros.
+  useEffect(() => {
+    fetchUsers({ first: ITEMS_PER_PAGE });
+    if (roles.length === 0) { // Solo carga los roles una vez.
+        fetchRoles();
+    }
+  }, [appliedFilters, fetchUsers, fetchRoles, roles.length]);
   
-  const handleMutationSuccess = (message) => {
-    showSuccess(message);
-    resetPagination();
-    queryClient.invalidateQueries(['users']);
-    handleCloseModal();
+  // --- Handlers para filtros y paginación ---
+  const handleFilterChange = (e) => setFilters(prev => ({ ...prev, [e.target.name]: e.target.value }));
+  
+  const resetPaginationAndFetch = () => {
+    setCursorStack([null]);
+    setCurrentPage(1);
+    fetchUsers({ first: ITEMS_PER_PAGE });
+  };
+  
+  const applyFilters = () => {
+    setAppliedFilters(filters);
+    resetPaginationAndFetch();
+  };
+  
+  const clearFilters = () => {
+    setFilters(initialFilters);
+    setAppliedFilters(initialFilters);
+    resetPaginationAndFetch();
   };
 
-  const createUserMutation = useMutation({
-    mutationFn: UserService.createUser,
-    onSuccess: () => handleMutationSuccess("Usuario creado con éxito."),
-    onError: handleError,
-  });
+  // --- Handlers para modales y acciones CRUD ---
+  const handleOpenModal = (mode, user = null) => {
+    setModalMode(mode);
+    setSelectedUser(user);
+    onOpen();
+  };
+  
+  const handleCloseModal = () => {
+    setSelectedUser(null);
+    onClose();
+  };
 
-  const updateUserMutation = useMutation({
-    mutationFn: UserService.updateUser,
-    onSuccess: () => handleMutationSuccess("Usuario actualizado con éxito."),
-    onError: handleError,
-  });
-
-  const deleteUserMutation = useMutation({
-    mutationFn: UserService.deleteUser,
-    onSuccess: () => handleMutationSuccess("El usuario ha sido eliminado."),
-    onError: handleError,
-  });
-
-  // --- Handlers de UI ---
-  const handleFilterChange = (e) => setFilters(prev => ({ ...prev, [e.target.name]: e.target.value }));
-  const applyFilters = () => { setAppliedFilters(filters); resetPagination(); };
-  const clearFilters = () => { setFilters(initialFilters); setAppliedFilters(initialFilters); resetPagination(); };
-
-  const handleOpenModal = (mode, user = null) => { setModalMode(mode); setSelectedUser(user); onOpen(); };
-  const handleCloseModal = () => { setSelectedUser(null); onClose(); };
-
-  const handleSubmit = (values) => {
-    const payload = { ...values };
-    if (modalMode === "create") {
-      createUserMutation.mutate(payload);
-    } else {
-      updateUserMutation.mutate({ id: selectedUser.id, ...payload });
+  /**
+   * Gestiona el envío de los formularios de creación y edición de usuarios.
+   * @param {object} values - Datos del formulario.
+   */
+  const handleSubmit = async (values) => {
+    setIsSubmitting(true);
+    try {
+      const payload = { ...values };
+      if (modalMode === "create") {
+        await UserService.createUser(payload);
+      } else {
+        await UserService.updateUser({ id: selectedUser.id, ...payload });
+      }
+      showSuccess(`Usuario ${modalMode === "create" ? "creado" : "actualizado"} con éxito.`);
+      resetPaginationAndFetch();
+      handleCloseModal();
+    } catch (error) {
+      handleError(error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleDeleteConfirm = () => deleteUserMutation.mutate(selectedUser.id);
-  const handleViewUser = (user) => navigate(`/users/${user.id}`);
-
-  const handleNext = () => pageInfo.hasNextPage && nextPage(pageInfo.endCursor);
-  const handlePrevious = () => currentPage > 1 && prevPage();
-
-  const getModalTitle = () => {
-    if (modalMode === "create") return "Crear Nuevo Usuario";
-    if (modalMode === "edit") return "Editar Usuario";
-    return "Confirmar Eliminación";
+  /**
+   * Confirma y ejecuta la eliminación de un usuario.
+   */
+  const handleDeleteConfirm = async () => {
+    setIsSubmitting(true);
+    try {
+        await UserService.deleteUser(selectedUser.id);
+        showSuccess("El usuario ha sido eliminado.");
+        resetPaginationAndFetch();
+        handleCloseModal();
+    } catch (error) {
+        handleError(error);
+    } finally {
+        setIsSubmitting(false);
+    }
   };
 
-  // --- Renderizado ---
-  const isLoadingInitial = isLoadingUsers && users.length === 0;
-  if (isLoadingInitial) {
-    return <Center h="calc(100vh - 200px)"><Spinner size="xl" /></Center>;
-  }
+  const handleViewUser = (user) => navigate(`/users/${user.id}`);
+  
+  // --- Handlers de Paginación ---
+  const handleNext = () => {
+    if (!pageInfo.hasNextPage) return;
+    setCursorStack((prev) => [...prev, pageInfo.endCursor]);
+    setCurrentPage((prev) => prev + 1);
+    fetchUsers({ first: ITEMS_PER_PAGE, after: pageInfo.endCursor });
+  };
+  
+  const handlePrevious = () => {
+    if (currentPage === 1) return;
+    const prevCursor = cursorStack[currentPage - 2] || null;
+    setCursorStack((prev) => prev.slice(0, -1));
+    setCurrentPage((prev) => prev - 1);
+    fetchUsers({ first: ITEMS_PER_PAGE, after: prevCursor });
+  };
 
-  const isSubmitting = createUserMutation.isLoading || updateUserMutation.isLoading || deleteUserMutation.isLoading;
+  // Configuración de las columnas para la tabla.
+  const columns = [
+    { Header: "Usuario", accessor: "username" }, { Header: "Email", accessor: "email" },
+    { Header: "Nombre", accessor: "firstName" }, { Header: "Rol", accessor: "rolDisplay" },
+    { Header: "Activo", accessor: "isActive" },
+  ];
+  
+  const getModalTitle = () => {
+    switch (modalMode) {
+      case "create": return "Crear Nuevo Usuario";
+      case "edit": return "Editar Usuario";
+      case "delete": return "Confirmar Eliminación";
+      default: return "";
+    }
+  };
+
+  if (isLoading && users.length === 0) return <Center h="calc(100vh - 200px)"><Spinner size="xl" /></Center>;
 
   return (
     <Box>
       <Card borderRadius="xl" boxShadow="lg">
         <CardHeader borderBottomWidth="1px" p={4}>
-          <Flex direction={{ base: 'column', md: 'row' }} justify="space-between" align={{ base: 'flex-start', md: 'center' }} gap={4}>
-            <Box>
-              <Heading size="lg">Gestión de Usuarios</Heading>
-              <Text color={textColor}>Visualiza, crea, edita y elimina los usuarios del sistema.</Text>
-            </Box>
-            <Button leftIcon={<AddIcon />} colorScheme="blue" onClick={() => handleOpenModal("create")}>Crear Usuario</Button>
-          </Flex>
+            <Flex direction={{ base: 'column', md: 'row' }} justify="space-between" align={{ base: 'flex-start', md: 'center' }} gap={4}>
+                <Box>
+                    <Heading size="lg">Gestión de Usuarios</Heading>
+                    <Text color={textColor}>Visualiza, crea, edita y elimina los usuarios del sistema.</Text>
+                </Box>
+                <Button leftIcon={<AddIcon />} colorScheme="blue" onClick={() => handleOpenModal("create")}>Crear Usuario</Button>
+            </Flex>
         </CardHeader>
 
         <Filtros
@@ -164,14 +217,14 @@ const UsersPage = () => {
           onFilterChange={handleFilterChange}
           onApplyFilters={applyFilters}
           onClearFilters={clearFilters}
-          isLoading={isFetching}
+          isLoading={isLoading}
         />
         <Divider/>
 
         <CardBody pos="relative">
-          {isFetching && <OverlayLoader />}
+          {isLoading && <OverlayLoader />}
           {users.length === 0 ? 
-            <EmptyState /> : (
+          <EmptyState /> : (
             <GenericTable
               columns={columns} 
               data={users}
@@ -186,13 +239,8 @@ const UsersPage = () => {
           <>
             <Divider />
             <Paginacion
-              currentPage={currentPage}
-              onAnterior={handlePrevious}
-              onSiguiente={handleNext}
-              isLoading={isFetching}
-              itemCount={users.length}
-              totalCount={totalCount}
-              itemsPerPage={itemsPerPage}
+              currentPage={currentPage} onAnterior={handlePrevious} onSiguiente={handleNext}
+              isLoading={isLoading} itemCount={users.length} totalCount={totalCount} itemsPerPage={ITEMS_PER_PAGE}
             />
           </>
         )}
@@ -213,9 +261,11 @@ const UsersPage = () => {
         {modalMode !== 'delete' ? (
           <UserForm
             onSubmit={handleSubmit}
-            initialValues={selectedUser || { username: "", email: "", password: "", rolId: "" }}
+            initialValues={
+              selectedUser || { username: "", email: "", password: "", rolId: "" }
+            }
             isSubmitting={isSubmitting}
-            roles={roles} // Pasa los roles cargados
+            roles={roles}
             isCreateMode={modalMode === "create"}
           />
         ) : (
@@ -226,22 +276,18 @@ const UsersPage = () => {
   );
 };
 
-// --- Constantes y Componentes de UI ---
-
-const columns = [
-  { Header: "Usuario", accessor: "username" },
-  { Header: "Email", accessor: "email" },
-  { Header: "Nombre", accessor: "firstName" },
-  { Header: "Rol", accessor: "rolDisplay" },
-  { Header: "Activo", accessor: "isActive" },
-];
-
+/**
+ * Muestra un spinner de carga superpuesto.
+ */
 const OverlayLoader = () => (
   <Center pos="absolute" top="0" left="0" w="full" h="full" bg="whiteAlpha.700" zIndex="10">
     <Spinner size="xl" color="blue.500" />
   </Center>
 );
 
+/**
+ * Muestra un mensaje cuando no hay datos para mostrar en la tabla.
+ */
 const EmptyState = () => (
   <Center p={10}>
     <VStack>
