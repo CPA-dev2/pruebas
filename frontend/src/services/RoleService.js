@@ -19,12 +19,6 @@ const GET_ROLES_QUERY = `
           id
           nombre
           isActive
-          canCreateItems
-          canUpdateItems
-          canDeleteItems
-          canCreateClients
-          canUpdateClients
-          canDeleteClients
           permissionCount
           userCount
         }
@@ -40,48 +34,16 @@ const GET_ROLES_QUERY = `
 
 // --- MUTATIONS ---
 const CREATE_ROLE_MUTATION = `
-  mutation CreateRol(
-    $nombre: String!, 
-    $isActive: Boolean,
-    $canCreateItems: Boolean,
-    $canUpdateItems: Boolean,
-    $canDeleteItems: Boolean) {
-    createRol(
-      nombre: $nombre, 
-      isActive: $isActive,
-      canCreateItems: $canCreateItems,
-      canUpdateItems: $canUpdateItems,
-      canDeleteItems: $canDeleteItems,) {
+  mutation CreateRol($nombre: String!, $isActive: Boolean) {
+    createRol(nombre: $nombre, isActive: $isActive) {
       rol { id }
     }
   }
 `;
 
 const UPDATE_ROLE_MUTATION = `
-  mutation UpdateRol(
-    $id: ID!, 
-    $nombre: String, 
-    $isActive: Boolean, 
-    $canCreateItems: Boolean, 
-    $canUpdateItems: Boolean, 
-    $canDeleteItems: Boolean,
-    $canCreateClients: Boolean,
-    $canUpdateClients: Boolean,
-    $canDeleteClients: Boolean,
-    $canViewAuditlogs: Boolean
-  ) {
-    updateRol(
-      id: $id, 
-      nombre: $nombre, 
-      isActive: $isActive, 
-      canCreateItems: $canCreateItems, 
-      canUpdateItems: $canUpdateItems, 
-      canDeleteItems: $canDeleteItems,
-      canCreateClients: $canCreateClients,
-      canUpdateClients: $canUpdateClients,
-      canDeleteClients: $canDeleteClients,
-      canViewAuditlogs: $canViewAuditlogs
-    ) {
+  mutation UpdateRol($id: ID!, $nombre: String, $isActive: Boolean, $canCreateItems: Boolean, $canUpdateItems: Boolean, $canDeleteItems: Boolean) {
+    updateRol(id: $id, nombre: $nombre, isActive: $isActive, canCreateItems: $canCreateItems, canUpdateItems: $canUpdateItems, canDeleteItems: $canDeleteItems) {
       rol { id }
     }
   }
@@ -104,12 +66,6 @@ const GET_ROLE_BY_ID_QUERY = `
       canCreateItems
       canUpdateItems
       canDeleteItems
-      canCreateClients
-      canUpdateClients
-      canDeleteClients
-      permissionCount
-      canViewAuditlogs
-      userCount
       created
       modified
     }

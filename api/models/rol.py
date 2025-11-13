@@ -15,9 +15,6 @@ class Rol(BaseModel):
         can_create_items (bool): Permiso para crear nuevos `Item`.
         can_update_items (bool): Permiso para modificar `Item` existentes.
         can_delete_items (bool): Permiso para eliminar `Item`.
-        can_create_clients (bool): Permiso para crear nuevos `Cliente`.
-        can_update_clients (bool): Permiso para modificar `Cliente` existentes.
-        can_delete_clients (bool): Permiso para eliminar `Cliente`.
     """
     nombre = models.CharField(
         max_length=100,
@@ -36,31 +33,6 @@ class Rol(BaseModel):
         default=False,
         help_text="Permite al rol eliminar items."
     )
-    can_update_distributors = models.BooleanField(
-        default=False,
-        help_text="Permite al rol actualizar distribuidores."
-    )    
-    can_delete_distributors = models.BooleanField(
-        default=False,
-        help_text="Permite al rol eliminar distribuidores."
-    )
-    can_create_clients = models.BooleanField(
-        default=False,
-        help_text="Permite al rol crear nuevos clientes."
-    )
-    can_update_clients = models.BooleanField(
-        default=False,
-        help_text="Permite al rol editar clientes existentes."
-    )
-    can_delete_clients = models.BooleanField(
-            default=False,
-            help_text="Permite al rol eliminar clientes."
-    )
-    can_view_auditlogs = models.BooleanField(
-        default=False,
-        help_text="Permite al rol ver los registros de auditoría."
-    )
-
 
     def __str__(self):
         """

@@ -31,7 +31,7 @@ import { RiEyeCloseLine } from "react-icons/ri";
 
 import { useAuth } from "../../../context/AuthContext";
 import { handleError } from "../../../services/NotificationService";
-import illustration from "../../../assets/img/auth/main_login.avif";
+import illustration from "../../../assets/img/auth/auth4.avif";
 import FixedPlugin from "../../../components/fixedPlugin/FixedPlugin";
 import AuthIllustration from "../../../layouts/auth/Default";
 
@@ -102,7 +102,7 @@ const LoginPage = () => {
                             ¡Bienvenido de nuevo!
                           </Heading>
                           <Text color={textColorSecondary}>
-                            Inicia sesión para continuar a la plataforma.
+                            Inicia sesión para continuar en la plataforma.
                           </Text>
                         </VStack>
 

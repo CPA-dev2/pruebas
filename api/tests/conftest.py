@@ -1,8 +1,7 @@
 import pytest
 import json
 from django.test import Client
-from api.models import Usuario, Rol, Item, Distributor
-from api.models import Client as ClientModel
+from api.models import Usuario, Rol, Item
 from graphql_relay import to_global_id
 
 
@@ -23,13 +22,7 @@ def rol_admin(db):
         nombre="Admin",
         can_create_items=True,
         can_update_items=True,
-        can_delete_items=True,
-        can_create_clients=True,
-        can_update_clients=True,
-        can_delete_clients=True,
-        can_update_distributors=True,
-        can_delete_distributors=True,
-        can_view_auditlogs=True
+        can_delete_items=True
     )
 
 
@@ -55,13 +48,7 @@ def rol_viewer(db):
         nombre="Viewer",
         can_create_items=False,
         can_update_items=False,
-        can_delete_items=False,
-        can_create_clients=True,
-        can_update_clients=True,
-        can_delete_clients=True,
-        can_update_distributors=True,
-        can_delete_distributors=True,
-        can_view_auditlogs=False
+        can_delete_items=False
     )
 
 
@@ -128,7 +115,7 @@ def auth_headers_factory(api_client):
 
         # Usamos la ruta de la api, no la de graphql
         response = api_client.post(
-            "/graphql/", json.dumps(data), content_type="application/json"
+            "/api/graphql/", json.dumps(data), content_type="application/json"
         )
 
         content = response.json()
@@ -190,132 +177,3 @@ def item_global_id_factory(item_factory):
         item = item_factory(**kwargs)
         return to_global_id('ItemNode', item.pk)
     return _create_and_get_id
-
-
-@pytest.fixture
-def client_factory(db):
-    """
-    Factory fixture para crear instancias del modelo `Client` para las pruebas.
-    """
-    def _create_client(**kwargs):
-        default_data = {
-            "nombres": "Cliente Test",
-            "apellidos":"Apellido Test",
-            "dpi":"1234567899874",
-            "email":"test@gmail.com",
-            "telefono":"12345678",
-            "direccion":"Direccion Test",
-            "nit":"7777777777",
-            "is_active": True
-        }
-        default_data.update(kwargs)
-        return ClientModel.objects.create(**default_data)
-    return _create_client
-
-
-@pytest.fixture
-def client_global_id_factory(client_factory):
-    """
-    Factory fixture para obtener el ID global de un `Client`.
-    Crea un client y devuelve su ID en el formato de Relay.
-    """
-    def _create_and_get_id(**kwargs):
-        client = client_factory(**kwargs)
-        return to_global_id('ClientNode', client.pk)
-    return _create_and_get_id
-
-
-@pytest.fixture
-def distributor_factory(db):
-    """
-    Factory fixture para crear instancias del modelo `Distributor` para las pruebas.
-    """
-    import random
-    counter = 0
-    
-    def _create_distributor(**kwargs):
-        nonlocal counter
-        counter += 1
-        
-        # Generar valores únicos para campos con restricción unique
-        unique_suffix = f"{counter}{random.randint(1000, 9999)}"
-        
-        default_data = {
-            "nombres": "Distribuidor",
-            "apellidos": "De Prueba",
-            "dpi": f"123456789010{counter}",
-            "correo": f"distribuidor{unique_suffix}@test.com",  
-            "telefono": "12345678",
-            "departamento": "Guatemala",
-            "municipio": "Guatemala",
-            "direccion": "Zona 1, Guatemala",
-            "negocio_nombre": "Negocio de Prueba",
-            "nit": f"1234567{counter}{random.randint(0, 9)}",
-            "telefono_negocio": "87654321",
-            "equipamiento": "1 computadora",
-            "sucursales": "1",
-            "antiguedad": "5 años",
-            "productos_distribuidos": "Producto A, Producto B",
-            "tipo_persona": "individual",
-            "cuenta_bancaria": "Cuenta de Prueba",
-            "numero_cuenta": "1234567890",
-            "tipo_cuenta": "ahorro",
-            "banco": "Banco de Prueba",
-            "estado": "pendiente"
-        }
-        default_data.update(kwargs)
-        return Distributor.objects.create(**default_data)
-    return _create_distributor
-
-@pytest.fixture
-def distributor_global_id_factory(distributor_factory):
-    """
-    Factory fixture para obtener el ID global de un `Distributor`.
-    Crea un distribuidor y devuelve su ID en el formato de Relay.
-    """
-    def _create_and_get_id(**kwargs):
-        distributor = distributor_factory(**kwargs)
-        return to_global_id('DistributorNode', distributor.pk)
-    return _create_and_get_id
-
-@pytest.fixture
-def usuario_sin_permisos(db):
-    """
-    Crea un usuario sin permisos de auditoría.
-    """
-    rol = Rol.objects.create(
-        nombre="Sin Permisos",
-        can_view_auditlogs=False
-    )
-    return Usuario.objects.create_user(
-        username="sin_permisos",
-        email="sin_permisos@test.com",
-        password="testpass123",
-        rol=rol
-    )
-
-
-@pytest.fixture
-def usuario_admin(rol_admin):
-    """
-    Crea un usuario administrador con permisos de auditoría.
-    """
-    return Usuario.objects.create_user(
-        username="admin",
-        email="admin@test.com", 
-        password="testpass123",
-        rol=rol_admin
-    )
-
-
-@pytest.fixture
-def auditlog_sample(usuario_admin):
-    """
-    Crea un registro de auditoría de ejemplo para pruebas.
-    """
-    from api.models import Auditlog
-    return Auditlog.objects.create(
-        usuario=usuario_admin,
-        accion="Creación de Item",
-        descripcion="Item de prueba creado para testing"
-    )

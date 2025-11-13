@@ -3,7 +3,6 @@ from graphql import GraphQLError
 from graphql_relay import from_global_id
 from api.models import Rol
 from ..permissions import check_is_superuser
-from api.services.auditlog_service import log_action, log_model_update
 from ..schema.roles import RolType
 
 class CreateRolMutation(graphene.Mutation):
@@ -19,12 +18,6 @@ class CreateRolMutation(graphene.Mutation):
         can_create_items = graphene.Boolean(description="Permiso para crear items.")
         can_update_items = graphene.Boolean(description="Permiso para actualizar items.")
         can_delete_items = graphene.Boolean(description="Permiso para eliminar items.")
-        can_create_clients = graphene.Boolean(description="Permiso para crear clientes")
-        can_update_clients = graphene.Boolean(description="Permiso para actualizar clientes")
-        can_delete_clients = graphene.Boolean(description="Permiso para eliminar clientes")
-        can_update_distributors = graphene.Boolean(description="Permiso para actualizar distribuidores.")
-        can_delete_distributors = graphene.Boolean(description="Permiso para eliminar distribuidores.")
-        can_view_auditlogs = graphene.Boolean(description="Permiso para ver registros de auditoría.")
 
     rol = graphene.Field(RolType, description="El rol recién creado.")
 
@@ -38,13 +31,6 @@ class CreateRolMutation(graphene.Mutation):
             raise GraphQLError("Ya existe un rol con este nombre.")
         
         rol = Rol.objects.create(nombre=nombre, **kwargs)
-
-        # Registrar la acción en el log de auditoría
-        log_action(
-            usuario=info.context.user,
-            accion="Creación de Rol",
-            descripcion=f"Rol '{rol.nombre}' creado con ID {rol.id}."
-        )
         return CreateRolMutation(rol=rol)
 
 
@@ -62,12 +48,6 @@ class UpdateRolMutation(graphene.Mutation):
         can_create_items = graphene.Boolean(description="Nuevo valor para el permiso de crear items.")
         can_update_items = graphene.Boolean(description="Nuevo valor para el permiso de actualizar items.")
         can_delete_items = graphene.Boolean(description="Nuevo valor para el permiso de eliminar items.")
-        can_create_clients = graphene.Boolean(description="Permiso para crear clientes")
-        can_update_clients = graphene.Boolean(description="Permiso para actualizar clientes")
-        can_delete_clients = graphene.Boolean(description="Permiso para eliminar clientes")
-        can_update_distributors = graphene.Boolean(description="Nuevo valor para el permiso de actualizar distribuidores.")
-        can_delete_distributors = graphene.Boolean(description="Nuevo valor para el permiso de eliminar distribuidores.")
-        can_view_auditlogs = graphene.Boolean(description="Nuevo valor para el permiso de ver registros de auditoría.")
 
     rol = graphene.Field(RolType, description="El rol actualizado.")
 
@@ -86,45 +66,9 @@ class UpdateRolMutation(graphene.Mutation):
             if new_name and Rol.objects.filter(nombre=new_name, is_deleted=False).exclude(pk=real_id).exists():
                 raise GraphQLError("Ya existe otro rol con este nombre.")
 
-            # Preparar campos a actualizar
-            updated_fields = {}
-            if kwargs.get('nombre') is not None:
-                updated_fields['nombre'] = kwargs['nombre']
-            if kwargs.get('is_active') is not None:
-                updated_fields['is_active'] = kwargs['is_active']
-            if kwargs.get('can_create_items') is not None:
-                updated_fields['can_create_items'] = kwargs['can_create_items']
-            if kwargs.get('can_update_items') is not None:
-                updated_fields['can_update_items'] = kwargs['can_update_items']
-            if kwargs.get('can_delete_items') is not None:
-                updated_fields['can_delete_items'] = kwargs['can_delete_items']
-            if kwargs.get('can_view_auditlogs') is not None:
-                updated_fields['can_view_auditlogs'] = kwargs['can_view_auditlogs']
-
-            # Labels personalizados para campos de rol para el frontend
-            field_labels = {
-                'nombre': 'Nombre del Rol',
-                'descripcion': 'Descripción',
-                'is_active': 'Estado',
-                'can_create_items': 'Permiso Crear Items',
-                'can_update_items': 'Permiso Actualizar Items',
-                'can_delete_items': 'Permiso Eliminar Items',
-                'can_view_auditlogs': 'Permiso Ver Auditorías'
-            }
-           
-            # Loggear cambios antes de guardar
-            log_model_update(
-                usuario=info.context.user,
-                instance=rol,
-                updated_fields=updated_fields,
-                model_name="Rol",
-                field_labels=field_labels
-            )
-            
-            # Aplicar cambios al modelo
-            for field_name, new_value in updated_fields.items():
-                setattr(rol, field_name, new_value)
-
+            for key, value in kwargs.items():
+                if value is not None:
+                    setattr(rol, key, value)
             rol.save()
             return UpdateRolMutation(rol=rol)
         except Rol.DoesNotExist:
@@ -153,12 +97,6 @@ class DeleteRolMutation(graphene.Mutation):
             if rol.usuario_set.filter(is_deleted=False).exists():
                 raise GraphQLError("No se puede eliminar un rol asignado a usuarios activos.")
             rol.delete()
-            # Registrar la acción en el log de auditoría
-            log_action(
-                usuario=info.context.user,
-                accion="Borrado Lógico de Rol",
-                descripcion=f"Rol '{rol.nombre}' (ID {rol.id}) marcado como eliminado."
-            )
             return DeleteRolMutation(success=True)
         except Rol.DoesNotExist:
             raise GraphQLError("El rol no existe.")
@@ -168,4 +106,3 @@ class RolMutations(graphene.ObjectType):
     create_rol = CreateRolMutation.Field(description="Crea un nuevo rol y define sus permisos.")
     update_rol = UpdateRolMutation.Field(description="Actualiza un rol existente.")
     delete_rol = DeleteRolMutation.Field(description="Marca un rol como eliminado (soft delete).")
-    

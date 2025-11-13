@@ -77,8 +77,7 @@ const UsersPage = () => {
   const fetchRoles = useCallback(async () => {
     try {
       const response = await UserService.getRolesList();
-      const rolesData = response.data.data.allRoles.edges.map(edge => edge.node);
-      setRoles(rolesData);
+      setRoles(response.data.data.allRoles.edges.map(edge => edge.node));
     } catch (error) {
       handleError("No se pudieron cargar los roles.");
     }

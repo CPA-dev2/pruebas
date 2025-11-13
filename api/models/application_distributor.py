@@ -2,7 +2,7 @@ from django.db import models
 from django.db.models import Q
 from .base_model import BaseModel
 
-class Distributor(BaseModel):
+class AplicationDistributor(BaseModel):
     """
     Representa un distribuidor en el sistema.
 
@@ -138,7 +138,14 @@ class Distributor(BaseModel):
         default='pendiente',
         help_text="Indica el estado del distribuidor en el sistema."
     )
-   
+    asignado_a = models.ForeignKey(
+        'api.Usuario',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='distributor_applications',
+        help_text="Colaborador asignado para revisar esta solicitud."
+    )
    
     def __str__(self):
         """

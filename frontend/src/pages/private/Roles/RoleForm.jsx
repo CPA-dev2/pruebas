@@ -2,15 +2,7 @@ import React from 'react';
 import { Formik, Form, Field } from 'formik';
 import * as Yup from 'yup';
 import {
-  FormControl, 
-  FormLabel, 
-  Input, 
-  FormErrorMessage, 
-  Button, 
-  VStack, 
-  Switch, 
-  HStack, 
-  Text
+  FormControl, FormLabel, Input, FormErrorMessage, Button, VStack, Switch, HStack, Text
 } from '@chakra-ui/react';
 
 /**
@@ -45,12 +37,6 @@ const RoleForm = ({ onSubmit, initialValues, isSubmitting, isEditMode = false, i
         canCreateItems: initialValues?.canCreateItems || false,
         canUpdateItems: initialValues?.canUpdateItems || false,
         canDeleteItems: initialValues?.canDeleteItems || false,
-        canCreateClients: initialValues?.canCreateClients || false,
-        canUpdateClients: initialValues?.canUpdateClients || false,
-        canDeleteClients: initialValues?.canDeleteClients || false,
-        canViewAuditlogs: initialValues?.canViewAuditlogs || false,
-        canUpdateDistributors: initialValues?.canUpdateDistributors || false,
-        canDeleteDistributors: initialValues?.canDeleteDistributors || false,
       }}
       validationSchema={validationSchema}
       onSubmit={onSubmit}
@@ -92,53 +78,6 @@ const RoleForm = ({ onSubmit, initialValues, isSubmitting, isEditMode = false, i
                 <FormControl as={HStack} justify="space-between" isDisabled={!isEditMode}>
                   <FormLabel htmlFor="canDeleteItems" mb="0">Eliminar Items</FormLabel>
                   <Switch id="canDeleteItems" isChecked={values.canDeleteItems} onChange={(e) => setFieldValue('canDeleteItems', e.target.checked)} />
-                </FormControl>
-              </VStack>
-              
-            )}
-
-           {!isCreateMode && (
-              <VStack spacing={4} align="stretch" w="full">
-                <Text fontWeight="bold" mt={4}>Permisos sobre Clientes:</Text>
-                {/* Los interruptores de permisos solo están habilitados en modo edición */}
-                <FormControl as={HStack} justify="space-between" isDisabled={!isEditMode}>
-                  <FormLabel htmlFor="canCreateClients" mb="0">Crear Clientes</FormLabel>
-                  <Switch id="canCreateClients" isChecked={values.canCreateClients} onChange={(e) => setFieldValue('canCreateClients', e.target.checked)} />
-                </FormControl>
-                <FormControl as={HStack} justify="space-between" isDisabled={!isEditMode}>
-                  <FormLabel htmlFor="canUpdateClients" mb="0">Editar Clientes</FormLabel>
-                  <Switch id="canUpdateClients" isChecked={values.canUpdateClients} onChange={(e) => setFieldValue('canUpdateClients', e.target.checked)} />
-                </FormControl>
-                <FormControl as={HStack} justify="space-between" isDisabled={!isEditMode}>
-                  <FormLabel htmlFor="canDeleteClients" mb="0">Eliminar Clientes</FormLabel>
-                  <Switch id="canDeleteClients" isChecked={values.canDeleteClients} onChange={(e) => setFieldValue('canDeleteClients', e.target.checked)} />
-                </FormControl>
-              </VStack>
-              
-            )}
-
-            {/* Sección de permisos sobre Distribuidores */}
-            {!isCreateMode && (
-              <VStack spacing={4} align="stretch" w="full">
-                <Text fontWeight="bold" mt={4}>Permisos sobre Distribuidores:</Text>
-                <FormControl as={HStack} justify="space-between" isDisabled={!isEditMode}>
-                  <FormLabel htmlFor="canUpdateDistributors" mb="0">Actualizar Distribuidores</FormLabel>
-                  <Switch id="canUpdateDistributors" isChecked={values.canUpdateDistributors} onChange={(e) => setFieldValue('canUpdateDistributors', e.target.checked)} />
-                </FormControl>
-                <FormControl as={HStack} justify="space-between" isDisabled={!isEditMode}>
-                  <FormLabel htmlFor="canDeleteDistributors" mb="0">Eliminar Distribuidores</FormLabel>
-                  <Switch id="canDeleteDistributors" isChecked={values.canDeleteDistributors} onChange={(e) => setFieldValue('canDeleteDistributors', e.target.checked)} />
-                </FormControl>
-              </VStack>
-            )}
-
-             {!isCreateMode && (
-              <VStack spacing={4} align="stretch" w="full">
-                <Text fontWeight="bold" mt={4}>Permisos sobre Bitácora (Auditoría):</Text>
-                {/* Los interruptores de permisos solo están habilitados en modo edición */}
-                <FormControl as={HStack} justify="space-between" isDisabled={!isEditMode}>
-                  <FormLabel htmlFor="canViewAuditlogs" mb="0">Ver Registros</FormLabel>
-                  <Switch id="canViewAuditlogs" isChecked={values.canViewAuditlogs} onChange={(e) => setFieldValue('canViewAuditlogs', e.target.checked)} />
                 </FormControl>
               </VStack>
             )}

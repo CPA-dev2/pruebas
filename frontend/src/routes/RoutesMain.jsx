@@ -15,7 +15,8 @@ const RoutesMain = () => {
       ) : (
         // Si no, renderiza las rutas públicas y redirige cualquier otra ruta a /login
         <>
-          <Route path="/*" element={<PublicRoutes />} />
+          <Route path="/login" element={<PublicRoutes />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
         </>
       )}
     </Routes>

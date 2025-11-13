@@ -23,7 +23,7 @@ def test_me_query_authenticated(editor_auth_headers, api_client, editor_user):
     """
     data = {"query": query}
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json", **editor_auth_headers
+        "/api/graphql/", json.dumps(data), content_type="application/json", **editor_auth_headers
     )
 
     content = response.json()
@@ -33,7 +33,6 @@ def test_me_query_authenticated(editor_auth_headers, api_client, editor_user):
     assert me_data['email'] == editor_user.email
     assert me_data['rol']['nombre'] == "Editor"
 
-
 def test_me_query_unauthenticated(api_client):
     """
     Verifica que un usuario no autenticado no puede usar la query `me`.
@@ -41,7 +40,7 @@ def test_me_query_unauthenticated(api_client):
     query = "{ me { username } }"
     data = {"query": query}
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json"
+        "/api/graphql/", json.dumps(data), content_type="application/json"
     )
 
     content = response.json()
@@ -67,7 +66,7 @@ def test_all_users_query_by_superuser(superuser_auth_headers, api_client, editor
     """
     data = {"query": query}
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json", **superuser_auth_headers
+        "/api/graphql/", json.dumps(data), content_type="application/json", **superuser_auth_headers
     )
 
     content = response.json()
@@ -80,7 +79,6 @@ def test_all_users_query_by_superuser(superuser_auth_headers, api_client, editor
     assert "editor" in usernames
     assert "viewer" in usernames
 
-
 def test_all_users_query_by_non_superuser(editor_auth_headers, api_client):
     """
     Verifica que un usuario normal no puede consultar la lista de usuarios.
@@ -88,9 +86,9 @@ def test_all_users_query_by_non_superuser(editor_auth_headers, api_client):
     query = "{ allUsers { edges { node { username } } } }"
     data = {"query": query}
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json", **editor_auth_headers
+        "/api/graphql/", json.dumps(data), content_type="application/json", **editor_auth_headers
     )
 
     content = response.json()
     assert "errors" in content
-    assert content["errors"][0]["message"] == "No tienes permisos de administrador para realizar esta acción."
+    assert content["errors"][0]["message"] == "No tienes permiso para realizar esta acción."

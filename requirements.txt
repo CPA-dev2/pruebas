@@ -5,7 +5,6 @@ django-debug-toolbar==4.2.0
 django-extensions==3.2.3
 django-filter==24.2
 graphene-django==3.2.0
-graphene-file-upload==1.3.0
 django-graphql-jwt==0.3.2
 python-dotenv==1.0.0
 pillow==11.1.0
@@ -16,9 +15,3 @@ sqlparse==0.4.4
 typing_extensions==4.9.0
 pytest==8.0.0
 pytest-django==4.8.0
-camelot-py==1.0.9
-opencv-python==4.12.0.88
-opencv-python-headless==4.12.0.88
-pdfplumber==0.11.7
-PyMuPDF==1.26.5
-pytesseract==0.3.13

@@ -22,7 +22,7 @@ def test_all_items_query_unauthenticated(api_client):
     """
     data = {"query": query}
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json"
+        "/api/graphql/", json.dumps(data), content_type="application/json"
     )
 
     content = response.json()
@@ -34,8 +34,6 @@ def test_all_items_query_unauthenticated(api_client):
     "editor_auth_headers",
     "viewer_auth_headers"
 ])
-
-
 def test_all_items_query_authenticated(request, api_client, item_factory, auth_headers_fixture):
     """
     Verifica que cualquier usuario autenticado (editor o visor) puede consultar
@@ -61,7 +59,7 @@ def test_all_items_query_authenticated(request, api_client, item_factory, auth_h
     """
     data = {"query": query}
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json", **auth_headers
+        "/api/graphql/", json.dumps(data), content_type="application/json", **auth_headers
     )
 
     content = response.json()
@@ -72,7 +70,6 @@ def test_all_items_query_authenticated(request, api_client, item_factory, auth_h
     assert len(results) == 1
     assert results[0]['node']['nombre'] == "Test Item 1"
     assert results[0]['node']['isActive'] is True
-
 
 def test_items_total_count_query(editor_auth_headers, api_client, item_factory):
     """
@@ -90,13 +87,12 @@ def test_items_total_count_query(editor_auth_headers, api_client, item_factory):
     """
     data = {"query": query}
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json", **editor_auth_headers
+        "/api/graphql/", json.dumps(data), content_type="application/json", **editor_auth_headers
     )
 
     content = response.json()
     assert "errors" not in content
     assert content['data']['itemsTotalCount'] == 2
-
 
 def test_item_query_by_id(editor_auth_headers, api_client, item_global_id_factory):
     """
@@ -116,7 +112,7 @@ def test_item_query_by_id(editor_auth_headers, api_client, item_global_id_factor
     variables = {"id": item_id}
     data = {"query": query, "variables": json.dumps(variables)}
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json", **editor_auth_headers
+        "/api/graphql/", json.dumps(data), content_type="application/json", **editor_auth_headers
     )
 
     content = response.json()

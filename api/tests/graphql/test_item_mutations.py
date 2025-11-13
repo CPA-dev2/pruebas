@@ -1,6 +1,6 @@
 import pytest
 import json
-from graphql_relay import to_global_id, from_global_id
+from graphql_relay import to_global_id
 from api.models import Item
 
 pytestmark = pytest.mark.django_db
@@ -25,13 +25,12 @@ def test_create_item_unauthorized(viewer_auth_headers, api_client):
     data = {"query": mutation, "variables": json.dumps(variables)}
 
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json", **viewer_auth_headers
+        "/api/graphql/", json.dumps(data), content_type="application/json", **viewer_auth_headers
     )
 
     content = response.json()
     assert "errors" in content
-    assert content["errors"][0]["message"] == "No tienes los permisos necesarios para realizar esta acción."
-
+    assert content["errors"][0]["message"] == "No tienes permiso para realizar esta acción."
 
 def test_create_item_authorized(editor_auth_headers, api_client):
     """
@@ -52,7 +51,7 @@ def test_create_item_authorized(editor_auth_headers, api_client):
     data = {"query": mutation, "variables": json.dumps(variables)}
 
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json", **editor_auth_headers
+        "/api/graphql/", json.dumps(data), content_type="application/json", **editor_auth_headers
     )
 
     content = response.json()
@@ -83,14 +82,13 @@ def test_update_item_unauthorized(viewer_auth_headers, api_client, item_global_i
     data = {"query": mutation, "variables": json.dumps(variables)}
 
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json", **viewer_auth_headers
+        "/api/graphql/", json.dumps(data), content_type="application/json", **viewer_auth_headers
     )
 
     content = response.json()
     assert "errors" in content
-    assert content["errors"][0]["message"] == "No tienes los permisos necesarios para realizar esta acción."
+    assert content["errors"][0]["message"] == "No tienes permiso para realizar esta acción."
     assert Item.objects.get(nombre="Item Original") is not None
-
 
 def test_update_item_authorized(editor_auth_headers, api_client, item_global_id_factory):
     """
@@ -111,7 +109,7 @@ def test_update_item_authorized(editor_auth_headers, api_client, item_global_id_
     data = {"query": mutation, "variables": json.dumps(variables)}
 
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json", **editor_auth_headers
+        "/api/graphql/", json.dumps(data), content_type="application/json", **editor_auth_headers
     )
 
     content = response.json()
@@ -142,14 +140,13 @@ def test_delete_item_unauthorized(viewer_auth_headers, api_client, item_global_i
     data = {"query": mutation, "variables": json.dumps(variables)}
 
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json", **viewer_auth_headers
+        "/api/graphql/", json.dumps(data), content_type="application/json", **viewer_auth_headers
     )
 
     content = response.json()
     assert "errors" in content
-    assert content["errors"][0]["message"] == "No tienes los permisos necesarios para realizar esta acción."
+    assert content["errors"][0]["message"] == "No tienes permiso para realizar esta acción."
     assert Item.objects.get(pk=from_global_id(item_id)[1]).is_deleted is False
-
 
 def test_delete_item_authorized(superuser_auth_headers, api_client, item_global_id_factory):
     """
@@ -169,7 +166,7 @@ def test_delete_item_authorized(superuser_auth_headers, api_client, item_global_
     data = {"query": mutation, "variables": json.dumps(variables)}
 
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json", **superuser_auth_headers
+        "/api/graphql/", json.dumps(data), content_type="application/json", **superuser_auth_headers
     )
 
     content = response.json()
@@ -197,7 +194,7 @@ def test_hard_delete_item(superuser_auth_headers, api_client, item_global_id_fac
     data = {"query": mutation, "variables": json.dumps(variables)}
 
     response = api_client.post(
-        "/graphql/", json.dumps(data), content_type="application/json", **superuser_auth_headers
+        "/api/graphql/", json.dumps(data), content_type="application/json", **superuser_auth_headers
     )
 
     content = response.json()
