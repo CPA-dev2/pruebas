@@ -16,7 +16,7 @@ from api.utils.distributors.validators import (
 from api.utils.files import decode_base64_to_contentfile, write_bytes_to_temp_pdf
 
 # ✨ Celery task
-from api.tasks import process_rtu_for_request
+from api.tasks import process_distributor_rtu
 
 
 # -------------------helpers para DistributorService ------------------- #
@@ -175,7 +175,7 @@ def create_distributor(
         # 5) Encolar procesamiento del RTU si hay RTU entre los documentos
         has_rtu = any(getattr(d, "tipoDocumento", None) == "rtu" for d in documentos)
         if has_rtu:
-            process_rtu_for_request.delay(distributor.id)
+            process_distributor_rtu.delay(distributor.id)
             _create_tracking_distributor(
                 distributor, "pendiente",
                 "Distribuidor creado; RTU en proceso en background."
@@ -262,7 +262,7 @@ def add_documents_to_distributor(distributor: Distributor, document: dict) -> Do
 
         # 🚀 Si es RTU, re-procesar en background
         if document["tipo_documento"] == "rtu":
-            process_rtu_for_request.delay(distributor.id)
+            process_distributor_rtu.delay(distributor.id)
             _create_tracking_distributor(
                 distributor, distributor.estado,
                 "RTU cargado/actualizado; procesamiento en background encolado."
@@ -296,7 +296,7 @@ def update_document_to_distributor(document: Document, documentUpdate: dict) -> 
 
         # 🚀 Si es un RTU y cambiamos el archivo, re-procesar
         if archivo_cambiado and document.tipo_documento == "rtu":
-            process_rtu_for_request.delay(document.distribuidor_id)
+            process_distributor_rtu.delay(document.distribuidor_id)
             _create_tracking_distributor(
                 document.distribuidor, document.distribuidor.estado,
                 "RTU actualizado; procesamiento en background encolado."

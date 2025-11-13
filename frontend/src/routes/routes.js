@@ -15,7 +15,7 @@ import UserDetailPage from "../pages/private/Users/UserDetailPage";
 import RolesPage from "../pages/private/Roles/RolesPage";
 import RoleEditPage from "../pages/private/Roles/RoleEditPage";
 import DistributorTabsPage from "../pages/private/Distributors/DistributorTabsPage";
-// import DistributorsPage from "../pages/private/Distributors/DistributorsPage";
+import DistributorsPage from "../pages/private/Distributors/DistributorsPage";
 import DistributorDetailPage from "../pages/private/Distributors/DistributorDetailPage";
 import DistributorEditPage from "../pages/private/Distributors/DistributorEditPage";
 import DistributorRegistration from "../pages/public/DistributorRegistration/DistributorRegistration";
@@ -105,9 +105,9 @@ export const routes = [
     name: "Crear Distribuidor",
     path: "/distributors/create",
     component: DistributorRegistration,
-    isPrivate: false,
-    showSidebar: false,
-    accessValidate: false,
+    isPrivate: true,
+    showSidebar: false, // Importante: no la mostramos en el menú lateral
+    accessValidate: ["DEMO", "Enfermera", "Backoffice"],
   },
   {
     name: "Editar Distribuidor",

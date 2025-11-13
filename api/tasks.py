@@ -1,116 +1,120 @@
-"""
-Módulo de Tareas Asíncronas (Celery).
-
-Contiene tareas pesadas o de larga duración que se ejecutan en segundo plano
-para no bloquear el servidor web, como el procesamiento de archivos PDF.
-"""
 import logging
-from celery import shared_task
+from pathlib import Path
 from django.db import transaction
-from django.utils import timezone
-from api.models import (
-    RegistrationRequest, RegistrationDocument, RegistrationLocation, RegistrationTracking
-)
+from celery import shared_task, Task
+from api.models import Distributor, Document, Location, Trackingdistributor
 from api.utils.rtu_extractor import extract_rtu
 
 logger = logging.getLogger(__name__)
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=60)
-def process_rtu_for_request(self, request_id: int):
-    """
-    Tarea asíncrona de Celery para procesar el RTU de una Solicitud de Registro.
+# --- 1. Clase Base para Logging (Adaptada a tus modelos) ---
+class BaseDistributorTask(Task):
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        distributor_id = args[0]
+        try:
+            with transaction.atomic():
+                d = Distributor.objects.select_for_update().get(pk=distributor_id)
+                d.estado = 'pendiente' # Asumiendo que tienes un estado de fallo
+                d.save(update_fields=['estado'])
 
-    Esta tarea es bloqueante (CPU/IO) y se ejecuta en un worker de Celery.
-    1.  Encuentra la solicitud y su documento RTU.
-    2.  Extrae datos del PDF.
-    3.  Actualiza la solicitud con el NIT, Razón Social y estado 'PENDIENTE'.
-    4.  Crea las Ubicaciones (sucursales) extraídas del RTU.
-    5.  Crea un registro de tracking para reflejar el resultado.
-    
-    Args:
-        self (celery.Task): La instancia de la tarea (inyectada por `bind=True`).
-        request_id (int): El ID de la RegistrationRequest a procesar.
-
-    Raises:
-        ValueError: Si los datos del RTU son inválidos o faltan.
-        RegistrationRequest.DoesNotExist: Si la solicitud no se encuentra.
-    """
-    logger.info(f"Iniciando procesamiento de RTU para Solicitud ID: {request_id}")
-    
-    # Usamos 'request_obj' para mantener una referencia en caso de error
-    request_obj = None 
-    try:
-        request_obj = RegistrationRequest.objects.get(pk=request_id)
-        
-        # Validar estado: solo procesar si está en 'nuevo'
-        if request_obj.estado != RegistrationRequest.Estado.NUEVO:
-            logger.warning(f"Solicitud ID {request_id} ya no está en estado 'nuevo'. Abortando.")
-            return
-
-        rtu_document = RegistrationDocument.objects.filter(
-            registration_request=request_obj,
-            tipo_documento='rtu',
-            is_deleted=False
-        ).first()
-
-        if not rtu_document:
-            raise ValueError("No se encontró el documento RTU para procesar.")
-
-        # --- 1. Procesamiento de PDF (Lento, pero seguro en Celery) ---
-        pdf_path = rtu_document.archivo.path
-        data = extract_rtu(pdf_path)
-
-        nit = data.get("nit")
-        razon = data.get("razon_social")
-        establecimientos = data.get("establecimientos", []) or []
-
-        if not nit or not razon:
-            raise ValueError("No se pudo extraer el NIT o la Razón Social del RTU.")
-        if not establecimientos:
-            raise ValueError("El RTU debe contener al menos un establecimiento.")
-
-        with transaction.atomic():
-            # --- 2. Actualizar Solicitud ---
-            request_obj.nit = nit
-            request_obj.negocio_nombre = razon
-            request_obj.estado = RegistrationRequest.Estado.PENDIENTE
-            request_obj.save(update_fields=['nit', 'negocio_nombre', 'estado'])
-
-            # --- 3. Crear Ubicaciones (Sucursales) ---
-            for est in establecimientos:
-                RegistrationLocation.objects.create(
-                    registration_request=request_obj,
-                    nombre=est.get('nombre_comercial') or est.get('nombre') or 'Sin nombre',
-                    direccion=est.get('direccion') or 'No especificada',
-                    departamento=est.get('departamento') or 'No especificado',
-                    municipio=est.get('municipio') or 'No especificado',
-                    telefono=request_obj.telefono_negocio or request_obj.telefono or '00000000'
+                Trackingdistributor.objects.create(
+                    distribuidor=d,
+                    estado=d.estado,
+                    observacion=f"Fallo en procesamiento RTU (Task ID: {task_id}): {exc}"
                 )
-            
-            # --- 4. Actualizar Tracking (Directamente) ---
-            RegistrationTracking.objects.create(
-                registration_request=request_obj,
-                estado=RegistrationRequest.Estado.PENDIENTE,
-                observacion='Perfil creado y RTU procesado automáticamente.'
-            )
-        
-        logger.info(f"Procesamiento de RTU completado para Solicitud ID: {request_id}")
+        except Distributor.DoesNotExist:
+            logger.error(f"Fallo de tarea {task_id}, Distributor {distributor_id} no existe.")
 
-    except RegistrationRequest.DoesNotExist:
-        logger.error(f"Fallo la tarea: Solicitud ID {request_id} no existe.")
-        # No se reintenta si el objeto no existe.
-        
-    except Exception as e:
-        logger.error(f"Fallo el procesamiento de RTU para Solicitud ID {request_id}: {str(e)}")
-        if request_obj:
-            # Si hay un error de validación o procesamiento, marcar para revisión manual.
-            request_obj.estado = RegistrationRequest.Estado.ERROR_RTU
-            request_obj.save(update_fields=['estado'])
-            RegistrationTracking.objects.create(
-                registration_request=request_obj,
-                estado=RegistrationRequest.Estado.ERROR_RTU,
-                observacion=f"Fallo en el procesamiento automático del RTU: {str(e)}"
+    def on_success(self, retval, task_id, args, kwargs):
+        distributor_id = args[0]
+        try:
+            d = Distributor.objects.get(pk=distributor_id) # Ya no necesita lock
+            d.estado = 'pendiente' # éxito, estado: pendiente (es el estado iniciar de un distribuidor)
+            d.save(update_fields=['estado'])
+
+            Trackingdistributor.objects.create(
+                distribuidor=d,
+                estado=d.estado,
+                observacion=f"Distribuidor registrado. RTU procesado exitosamente. {retval}"
             )
-        
-        # Reintentar la tarea (ej. por bloqueo de archivo, error de red temporal)
-        self.retry(exc=e)
+        except Distributor.DoesNotExist:
+            logger.warning(f"Tarea {task_id} exitosa, Distributor {distributor_id} no existe.")
+
+
+# --- 2. Tu Tarea, ahora "Refinada" ---
+@shared_task(
+    name="rtu.process_distributor_rtu",
+    base=BaseDistributorTask,  # <--- Usa la clase base para logging
+    bind=True,                 # <--- Requerido por la clase base
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+)
+def process_distributor_rtu(self, distributor_id: int):
+    # --- Parte 1: Extracción (Sin bloqueo de BD) ---
+    
+    # Obtenemos el 'd' solo para encontrar el documento
+    # No usamos select_for_update() aquí
+    d = Distributor.objects.get(pk=distributor_id)
+
+    rtu_doc = (Document.objects
+                .filter(distribuidor=d, tipo_documento="rtu", is_deleted=False)
+                .order_by("-created").first())
+    
+    if not rtu_doc or not rtu_doc.archivo:
+        # Esto causará un reintento y eventual fallo (manejado por on_failure)
+        raise ValueError("No se encontró documento RTU.")
+
+    # --- Esta es la parte lenta (Extracción de PDF) ---
+    data = extract_rtu(Path(rtu_doc.archivo.path))
+    # --- Fin de la parte lenta ---
+
+    nit = data.get("nit")
+    razon = data.get("razon_social")
+    establecimientos = data.get("establecimientos") or []
+
+    if not establecimientos:
+        # Pregunta: ¿Es esto un error? Si un RTU válido puede no tener
+        # establecimientos, deberías quitar este raise
+        # y dejar que la tarea termine con éxito.
+        raise ValueError("El RTU no contiene establecimientos.")
+
+    # --- Parte 2: Actualización de BD (Con bloqueo) ---
+    with transaction.atomic():
+        # ¡Ahora sí bloqueamos, pero solo por milisegundos!
+        d_locked = Distributor.objects.select_for_update().get(pk=distributor_id)
+
+        if nit and not d_locked.nit:
+            d_locked.nit = nit
+        if razon and not d_locked.negocio_nombre:
+            d_locked.negocio_nombre = razon
+        d_locked.save()
+
+        # Tu lógica de "upsert" de Locations (perfecta)
+        existentes = set(
+            (loc.nombre.strip(), (loc.direccion or "").strip())
+            for loc in Location.objects.filter(distribuidor=d_locked, is_deleted=False)
+        )
+        nuevos = []
+        for e in establecimientos:
+            nombre = (e.get("nombre_comercial") or e.get("nombre") or "Sin nombre").strip()
+            direccion = (e.get("direccion") or "No especificada").strip()
+            key = (nombre, direccion)
+            
+            if key in existentes:
+                continue
+            
+            nuevos.append(Location(
+                distribuidor=d_locked,
+                nombre=nombre,
+                direccion=direccion,
+                departamento=e.get("departamento") or "No especificado",
+                municipio=e.get("municipio") or "No especificado",
+                telefono=d_locked.telefono_negocio or d_locked.telefono or "00000000",
+            ))
+            
+        if nuevos:
+            Location.objects.bulk_create(nuevos, ignore_conflicts=True)
+            
+    # El `return` se pasará a `on_success` como `retval`
+    return f"NIT {nit} extraído. {len(nuevos)} nuevas ubicaciones."

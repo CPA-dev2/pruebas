@@ -1,93 +1,73 @@
-"""
-Módulo de Validadores para la Lógica de Negocio de Distribuidores/Registro.
-
-Estas funciones son reutilizables y están desacopladas de la capa de API.
-Lanzan `django.core.exceptions.ValidationError` ante fallos de validación.
-"""
 from typing import List, Dict, Any
 from django.db.models import Q
-from django.core.exceptions import ValidationError
-from api.models import (
-    RegistrationRequest, RegistrationDocument, RegistrationReference, RegistrationRevision
-)
+from graphql import GraphQLError
+from api.models import Revisiondistributor, Reference, Document
 
 def ensure_required_fields(data: Dict[str, Any], fields: List[str]):
-    """Verifica que todos los campos en la lista 'fields' existan en 'data'."""
     missing = [f for f in fields if not data.get(f)]
     if missing:
-        raise ValidationError(f"Campos obligatorios faltantes: {', '.join(missing)}")
+        raise GraphQLError(f"Campos obligatorios faltantes: {', '.join(missing)}")
 
 def ensure_at_least_n_refs(refs: List[Any], n: int):
-    """Verifica que se haya proporcionado un número mínimo de referencias."""
-    if not refs or len(refs) < n:
-        raise ValidationError(f"Se requieren al menos {n} referencias.")
+    if len(refs) < n:
+        raise GraphQLError(f"Se requieren al menos {n} referencias.")
 
 def validate_document_payload(tipo: str, nombre: str):
-    """Valida la extensión del archivo según su tipo de documento."""
-    if tipo in ['dpi_frontal', 'dpi_posterior', 'patente_comercio', 'factura_servicio']:
+    if tipo in ['dpi_frontal', 'dpi_posterior', 'patente_comercio']:
         if not (nombre.lower().endswith(('.png', '.jpg', '.jpeg'))):
-            raise ValidationError(f"El documento '{tipo}' debe ser imagen PNG o JPG.")
+            raise GraphQLError(f"El documento '{tipo}' debe ser imagen PNG o JPG.")
     elif tipo == 'rtu':
         if not nombre.lower().endswith('.pdf'):
-            raise ValidationError("El documento 'RTU' debe ser un archivo PDF.")
+            raise GraphQLError("El documento 'RTU' debe ser un archivo PDF.")
 
-# Máquina de estados para la validación de transiciones de estado
+# Máquina de estados para la validación de transiciones de estado de distribuidores
 ALLOWED = {
-    "nuevo": {"pendiente", "error_rtu"},
     "pendiente": {"revision"},
-    "revision": {"validado", "rechazado"},
+    "revision": {"validado", "aprobado", "rechazado"},
     "validado": {"aprobado", "rechazado", "revision"},
-    "error_rtu": {"pendiente"}, # Requiere corrección manual y re-procesamiento
     "aprobado": set(),
     "rechazado": set(),
 }
 
 def validate_state_transition(old: str, new: str):
-    """
-    Valida que una transición de estado sea permitida por la máquina de estados.
-    Lanza ValidationError si la transición es inválida.
-    """
-    if old not in ALLOWED:
-        raise ValidationError(f"Estado de origen desconocido: '{old}'.")
+    if old in ("aprobado", "rechazado"):
+        raise GraphQLError(f"No se puede modificar el estado desde '{old}'.")
     if new not in ALLOWED.get(old, set()):
-        raise ValidationError(f"Transición de estado inválida: {old} -> {new}")
+        raise GraphQLError(f"Transición de estado inválida: {old} -> {new}")
+    
 
-# --- Funciones auxiliares para verificar pendientes ---
-
-def validate_revision_pending(request_obj: RegistrationRequest, revision=None) -> bool:
-    """Verifica si hay revisiones pendientes, opcionalmente excluyendo la actual."""
-    qs = RegistrationRevision.objects.filter(
-        registration_request=request_obj, 
+def validate_revision_pending(distributor, revision) -> bool:
+    pending_revisions = Revisiondistributor.objects.filter(
+        distribuidor=distributor, 
         aprobado=False, 
         is_deleted=False
+    ).exclude(pk=revision.pk)
+    return pending_revisions.exists()
+
+def validate_references_pending(distributor) -> bool:
+    pending_refs = Reference.objects.filter(
+        Q(estado__isnull=True) | Q(estado="rechazado"),
+        distribuidor=distributor, 
+        is_deleted=False
     )
-    if revision:
-        qs = qs.exclude(pk=revision.pk)
-    return qs.exists()
+    return pending_refs.exists()
 
-def validate_references_pending(request_obj: RegistrationRequest) -> bool:
-    """Verifica si hay referencias pendientes."""
-    return RegistrationReference.objects.filter(
+def validate_documents_pending(distributor) -> bool:
+    pending_docs = Document.objects.filter(
         Q(estado__isnull=True) | Q(estado="rechazado"),
-        registration_request=request_obj, 
+        distribuidor=distributor, 
         is_deleted=False
-    ).exists()
+    )
+    return pending_docs.exists()
 
-def validate_documents_pending(request_obj: RegistrationRequest) -> bool:
-    """Verifica si hay documentos pendientes."""
-    return RegistrationDocument.objects.filter(
-        Q(estado__isnull=True) | Q(estado="rechazado"),
-        registration_request=request_obj, 
-        is_deleted=False
-    ).exists()
+def validate_all_pending(distributor, revision) -> bool:
 
-def validate_all_pending(request_obj: RegistrationRequest, revision=None):
-    """
-    Verifica todos los pendientes y lanza un error si se encuentra alguno.
-    """
-    if validate_revision_pending(request_obj, revision):
-        raise ValidationError("Existen revisiones pendientes que deben ser resueltas.")
-    if validate_references_pending(request_obj):
-        raise ValidationError("Existen referencias pendientes que deben ser resueltas.")
-    if validate_documents_pending(request_obj):
-        raise ValidationError("Existen documentos pendientes que deben ser resueltos.")
+    if validate_revision_pending(distributor, revision):
+        raise GraphQLError("Existen revisiones pendientes que deben ser resueltas antes de cambiar el estado.")
+    if validate_references_pending(distributor):
+        raise GraphQLError("Existen referencias pendientes que deben ser resueltas antes de cambiar el estado.")
+    if validate_documents_pending(distributor):
+        raise GraphQLError("Existen documentos pendientes que deben ser resueltos antes de cambiar el estado.")
+    return False
+
+

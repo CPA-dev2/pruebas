@@ -1,15 +1,14 @@
 import React from 'react';
-import { FieldArray, Field } from 'formik';
+import { Formik, Form, FieldArray, Field } from 'formik';
 import * as Yup from 'yup';
 import {
   VStack, Grid, GridItem, FormControl, FormLabel, Input, 
-  FormErrorMessage, Button, Box, Text, IconButton,
+  FormErrorMessage, Select, Button, Box, Text, IconButton,
   Card, CardBody, CardHeader, Heading, HStack, Alert, AlertIcon
 } from '@chakra-ui/react';
 import { AddIcon, DeleteIcon } from '@chakra-ui/icons';
 
-// Schema para una *única* referencia
-const referenciaSchema = Yup.object().shape({
+const referenciaSchema = Yup.object({
   nombres: Yup.string().required('El nombre es obligatorio'),
   telefono: Yup.string()
     .matches(/^\d{8}$/, 'El teléfono debe tener 8 dígitos')
@@ -17,112 +16,158 @@ const referenciaSchema = Yup.object().shape({
   relacion: Yup.string().required('La relación es obligatoria')
 });
 
-// 1. Exportar el schema de validación
-export const validationSchema = Yup.object().shape({
+const validationSchema = Yup.object({
   referencias: Yup.array()
     .of(referenciaSchema)
-    .min(3, 'Debes agregar al menos 3 referencias') // Requisito de 3
+    .min(2, 'Debes agregar al menos 2 referencias')
     .max(5, 'Puedes agregar máximo 5 referencias')
-    .required('Debes agregar referencias')
 });
 
-// 2. Aceptar props de Formik
-const ReferencesStep = ({ values, errors, touched }) => {
-  // 3. No hay <Formik>, <Form> ni handleSubmit
+const ReferencesStep = ({ formData, updateFormData, onNext }) => {
+  const handleSubmit = (values) => {
+    updateFormData(values);
+    onNext();
+  };
+
   return (
-    <VStack spacing={6} align="stretch">
-      <Heading size="lg" mb={4} fontWeight="semibold">
-        Referencias Comerciales
-      </Heading>
-      
-      <Alert status="info" borderRadius="md">
-        <AlertIcon />
-        Debes agregar un mínimo de 3 referencias comerciales o personales.
-      </Alert>
+    <Formik
+      initialValues={{
+        referencias: formData.referencias || [
+          { nombres: '', telefono: '', relacion: '' },
+          { nombres: '', telefono: '', relacion: '' }
+        ]
+      }}
+      validationSchema={validationSchema}
+      onSubmit={handleSubmit}
+    >
+      {({ values, errors, touched }) => (
+        <Form style={{ width: '100%' }}>
+          <VStack spacing={6} align="stretch">
+            <Alert status="info" borderRadius="md">
+              <AlertIcon />
+              <Box>
+                <Text fontWeight="medium">Referencias comerciales y personales</Text>
+                <Text fontSize="sm" mt={1}>
+                  Agrega entre 2 y 5 referencias que puedan dar información sobre tu historial crediticio 
+                  y comercial. Estas pueden ser proveedores, clientes, familiares o conocidos.
+                </Text>
+              </Box>
+            </Alert>
 
-      <FieldArray name="referencias">
-        {({ remove, push }) => (
-          <VStack spacing={4} align="stretch">
-            {/* Usar 'values' de las props */}
-            {values.referencias.map((ref, index) => (
-              <Card key={index} variant="outline">
-                <CardHeader>
-                  <HStack justify="space-between">
-                    <Heading size="md">Referencia {index + 1}</Heading>
-                    <IconButton
-                      aria-label="Eliminar referencia"
-                      icon={<DeleteIcon />}
-                      colorScheme="red"
-                      variant="ghost"
-                      onClick={() => remove(index)}
-                      // No deja eliminar si solo hay 3
-                      isDisabled={values.referencias.length <= 3} 
-                    />
-                  </HStack>
-                </CardHeader>
-                <CardBody>
-                  <Grid templateColumns={{ base: '1fr', md: 'repeat(3, 1fr)' }} gap={4}>
-                    
-                    <GridItem>
-                      <Field name={`referencias.${index}.nombres`}>
-                        {({ field }) => (
-                          <FormControl isInvalid={errors.referencias?.[index]?.nombres && touched.referencias?.[index]?.nombres}>
-                            <FormLabel htmlFor={`referencias.${index}.nombres`}>Nombre Completo *</FormLabel>
-                            <Input {...field} id={`referencias.${index}.nombres`} placeholder="Nombre" />
-                            <FormErrorMessage>{errors.referencias?.[index]?.nombres}</FormErrorMessage>
-                          </FormControl>
-                        )}
-                      </Field>
-                    </GridItem>
-                    
-                    <GridItem>
-                      <Field name={`referencias.${index}.telefono`}>
-                        {({ field }) => (
-                          <FormControl isInvalid={errors.referencias?.[index]?.telefono && touched.referencias?.[index]?.telefono}>
-                            <FormLabel htmlFor={`referencias.${index}.telefono`}>Teléfono *</FormLabel>
-                            <Input {...field} id={`referencias.${index}.telefono`} placeholder="12345678" type="number" />
-                            <FormErrorMessage>{errors.referencias?.[index]?.telefono}</FormErrorMessage>
-                          </FormControl>
-                        )}
-                      </Field>
-                    </GridItem>
-                    
-                    <GridItem>
-                      <Field name={`referencias.${index}.relacion`}>
-                        {({ field }) => (
-                          <FormControl isInvalid={errors.referencias?.[index]?.relacion && touched.referencias?.[index]?.relacion}>
-                            <FormLabel htmlFor={`referencias.${index}.relacion`}>Relación *</FormLabel>
-                            <Input {...field} id={`referencias.${index}.relacion`} placeholder="Ej. Proveedor, Cliente" />
-                            <FormErrorMessage>{errors.referencias?.[index]?.relacion}</FormErrorMessage>
-                          </FormControl>
-                        )}
-                      </Field>
-                    </GridItem>
-                  </Grid>
-                </CardBody>
-              </Card>
-            ))}
+            <FieldArray name="referencias">
+              {({ push, remove }) => (
+                <VStack spacing={4} align="stretch">
+                  {values.referencias.map((referencia, index) => (
+                    <Card key={index} variant="outline">
+                      <CardHeader pb={2}>
+                        <HStack justify="space-between">
+                          <Heading size="sm">Referencia #{index + 1}</Heading>
+                          {values.referencias.length > 2 && (
+                            <IconButton
+                              icon={<DeleteIcon />}
+                              size="sm"
+                              colorScheme="red"
+                              variant="ghost"
+                              onClick={() => remove(index)}
+                              aria-label="Eliminar referencia"
+                            />
+                          )}
+                        </HStack>
+                      </CardHeader>
+                      <CardBody pt={0}>
+                        <Grid templateColumns="repeat(auto-fit, minmax(200px, 1fr))" gap={4}>
+                          <Field name={`referencias.${index}.nombres`}>
+                            {({ field }) => (
+                              <FormControl 
+                                isInvalid={
+                                  errors.referencias?.[index]?.nombres && 
+                                  touched.referencias?.[index]?.nombres
+                                }
+                              >
+                                <FormLabel>Nombre completo *</FormLabel>
+                                <Input {...field} placeholder="Ej: Juan Carlos López" />
+                                <FormErrorMessage>
+                                  {errors.referencias?.[index]?.nombres}
+                                </FormErrorMessage>
+                              </FormControl>
+                            )}
+                          </Field>
 
-            {values.referencias.length < 5 && (
-              <Button
-                leftIcon={<AddIcon />}
-                variant="outline"
-                colorScheme="orange"
-                onClick={() => push({ nombres: '', telefono: '', relacion: '' })}
-              >
-                Agregar otra referencia ({values.referencias.length}/5)
-              </Button>
-            )}
+                          <Field name={`referencias.${index}.telefono`}>
+                            {({ field }) => (
+                              <FormControl 
+                                isInvalid={
+                                  errors.referencias?.[index]?.telefono && 
+                                  touched.referencias?.[index]?.telefono
+                                }
+                              >
+                                <FormLabel>Teléfono *</FormLabel>
+                                <Input {...field} placeholder="12345678" maxLength={8} />
+                                <FormErrorMessage>
+                                  {errors.referencias?.[index]?.telefono}
+                                </FormErrorMessage>
+                              </FormControl>
+                            )}
+                          </Field>
 
-            {typeof errors.referencias === 'string' && (
-              <Text color="red.500" fontSize="sm" textAlign="center">
-                {errors.referencias}
-              </Text>
-            )}
+                          <Field name={`referencias.${index}.relacion`}>
+                            {({ field }) => (
+                              <FormControl 
+                                isInvalid={
+                                  errors.referencias?.[index]?.relacion && 
+                                  touched.referencias?.[index]?.relacion
+                                }
+                              >
+                                <FormLabel>Relación *</FormLabel>
+                                <Select {...field} placeholder="Seleccionar relación">
+                                  <option value="proveedor">Proveedor</option>
+                                  <option value="cliente">Cliente</option>
+                                  <option value="familiar">Familiar</option>
+                                  <option value="amigo">Amigo/Conocido</option>
+                                  <option value="socio_comercial">Socio comercial</option>
+                                  <option value="empleado">Empleado</option>
+                                  <option value="otro">Otro</option>
+                                </Select>
+                                <FormErrorMessage>
+                                  {errors.referencias?.[index]?.relacion}
+                                </FormErrorMessage>
+                              </FormControl>
+                            )}
+                          </Field>
+                        </Grid>
+                      </CardBody>
+                    </Card>
+                  ))}
+
+                  {/* Botón para agregar más referencias */}
+                  {values.referencias.length < 5 && (
+                    <Button
+                      leftIcon={<AddIcon />}
+                      variant="outline"
+                      colorScheme="orange"
+                      onClick={() => push({ nombres: '', telefono: '', relacion: '' })}
+                    >
+                      Agregar referencia ({values.referencias.length}/5)
+                    </Button>
+                  )}
+
+                  {/* Error general del array */}
+                  {typeof errors.referencias === 'string' && (
+                    <Text color="red.500" fontSize="sm" textAlign="center">
+                      {errors.referencias}
+                    </Text>
+                  )}
+                </VStack>
+              )}
+            </FieldArray>
+            
+            <Button type="submit" colorScheme="orange" size="lg" w="full">
+              Continuar al Siguiente Paso
+            </Button>
           </VStack>
-        )}
-      </FieldArray>
-    </VStack>
+        </Form>
+      )}
+    </Formik>
   );
 };
 

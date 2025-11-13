@@ -1,160 +1,89 @@
-/**
- * @file Paso 6 del formulario: Revisión Final.
- * Consume el contexto y muestra un resumen de solo lectura de TODOS
- * los datos del formulario. El botón de envío final es manejado por el
- * componente padre (`DistributorRegistration`).
- */
 import React from 'react';
-import {
-  Box, Heading, Text, Divider, SimpleGrid, List, ListItem, ListIcon,
-  VStack, HStack, Icon, useColorModeValue, GridItem, Button, Flex
-} from '@chakra-ui/react';
-import {
-  MdPerson, MdBusiness, MdAccountBalance, MdPeople,
-  MdFileCopy, MdCheckCircle,
-} from 'react-icons/md';
-// 1. Importar el hook del contexto
-import { useRegistrationForm } from '../../../context/RegistrationContext';
-import { formatFileSize, VALIDATION_CONFIG } from '../../../../components/Componentes_reutilizables/FileUpload/FileValidation';
+import { Box, Text, VStack, Grid, GridItem, Card, CardBody, Heading, Divider } from '@chakra-ui/react';
 
-// --- Componentes de UI Locales (Helpers) ---
-const InfoItem = ({ label, value }) => {
-  const labelColor = useColorModeValue('gray.600', 'gray.400');
-  const valueColor = useColorModeValue('gray.800', 'gray.100');
-  if (!value) return null;
+const ReviewStep = ({ formData}) => {
   return (
-    <Box>
-      <Text fontSize="sm" fontWeight="bold" color={labelColor} textTransform="uppercase">{label}</Text>
-      <Text fontSize="md" color={valueColor} whiteSpace="pre-wrap">{value}</Text>
-    </Box>
+    <VStack spacing={6} w="full">
+      <Text textAlign="center" fontSize="lg" fontWeight="bold" mb={4}>
+        Revisa tu información antes de enviar
+      </Text>
+      
+      <Grid templateColumns="repeat(1, 1fr)" gap={6} w="full">
+        {/* Información Personal */}
+        <Card>
+          <CardBody>
+            <Heading size="md" mb={4} color="orange.600">Información Personal</Heading>
+            <Grid templateColumns="repeat(2, 1fr)" gap={4}>
+              <ReviewItem label="Nombres" value={formData.nombres} />
+              <ReviewItem label="Apellidos" value={formData.apellidos} />
+              <ReviewItem label="DPI" value={formData.dpi} />
+              <ReviewItem label="Email" value={formData.correo} />
+              <ReviewItem label="Teléfono" value={formData.telefono} />
+              <ReviewItem label="Tipo de Persona" value={formData.tipoPersona} />
+            </Grid>
+          </CardBody>
+        </Card>
+
+        {/* Ubicación */}
+        <Card>
+          <CardBody>
+            <Heading size="md" mb={4} color="orange.600">Ubicación</Heading>
+            <Grid templateColumns="repeat(2, 1fr)" gap={4}>
+              <ReviewItem label="Departamento" value={formData.departamento} />
+              <ReviewItem label="Municipio" value={formData.municipio} />
+              <GridItem colSpan={2}>
+                <ReviewItem label="Dirección" value={formData.direccion} />
+              </GridItem>
+            </Grid>
+          </CardBody>
+        </Card>
+
+        {/* Información del Negocio */}
+        {formData.negocioNombre && (
+          <Card>
+            <CardBody>
+              <Heading size="md" mb={4} color="orange.600">Información del Negocio</Heading>
+              <Grid templateColumns="repeat(2, 1fr)" gap={4}>
+                <ReviewItem label="Antigüedad" value={`${formData.antiguedad} años`} />
+                <ReviewItem label="Teléfono del Negocio" value={formData.telefonoNegocio} />
+              </Grid>
+            </CardBody>
+          </Card>
+        )}
+
+        {/* Información Bancaria */}
+        {formData.banco && (
+          <Card>
+            <CardBody>
+              <Heading size="md" mb={4} color="orange.600">Información Bancaria</Heading>
+              <Grid templateColumns="repeat(2, 1fr)" gap={4}>
+                <ReviewItem label="Banco" value={formData.banco} />
+                <ReviewItem label="Tipo de Cuenta" value={formData.tipoCuenta} />
+                <ReviewItem label="Número de Cuenta" value={formData.numeroCuenta} />
+                <ReviewItem label="Nombre de Cuenta" value={formData.cuentaBancaria} />
+              </Grid>
+            </CardBody>
+          </Card>
+        )}
+      </Grid>
+    </VStack>
   );
 };
 
-const SectionHeader = ({ icon, title }) => (
-  <HStack spacing={3} mb={5}>
-    <Icon as={icon} boxSize={6} color="orange.400" />
-    <Heading size="md">{title}</Heading>
-  </HStack>
-);
-// --- Fin de Componentes de UI ---
-
-const ReviewStep = () => {
-  // 2. Obtener datos y acciones del contexto
-  const { formData, goToPrevious, isSubmitting } = useRegistrationForm();
-  const values = formData; // Alias para facilitar la lectura
-  const borderColor = useColorModeValue('gray.200', 'gray.700');
-
+const ReviewItem = ({ label, value }) => {
+  if (!value) return null;
+  
   return (
-    <VStack spacing={8} align="stretch">
-      <Heading size="lg" fontWeight="semibold" textAlign="center">
-        Revisa tu Información
-      </Heading>
-      <Text textAlign="center" color="gray.500">
-        Asegúrate de que todos los datos sean correctos antes de finalizar.
-      </Text>
-
-      {/* --- 1. Información Personal --- */}
-      <Box borderWidth="1px" borderRadius="lg" p={6} borderColor={borderColor}>
-        <SectionHeader icon={MdPerson} title="Información Personal" />
-        <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
-          <InfoItem label="Nombres" value={values.nombres} />
-          <InfoItem label="Apellidos" value={values.apellidos} />
-          <InfoItem label="DPI" value={values.dpi} />
-          <InfoItem label="Correo Electrónico" value={values.correo} />
-          <InfoItem label="Teléfono" value={values.telefono} />
-          <InfoItem label="Departamento" value={values.departamento} />
-          <InfoItem label="Municipio" value={values.municipio} />
-          <GridItem colSpan={{ base: 1, md: 2 }}>
-            <InfoItem label="Dirección" value={values.direccion} />
-          </GridItem>
-        </SimpleGrid>
-      </Box>
-
-      {/* --- 2. Información del Negocio --- */}
-      <Box borderWidth="1px" borderRadius="lg" p={6} borderColor={borderColor}>
-        <SectionHeader icon={MdBusiness} title="Información del Negocio" />
-        <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
-          <InfoItem label="Tipo de Persona" value={values.tipo_persona} />
-          <InfoItem label="Teléfono del Negocio" value={values.telefono_negocio} />
-          <InfoItem label="Antigüedad" value={values.antiguedad} />
-          <InfoItem label="Equipamiento" value={values.equipamiento} />
-          <InfoItem label="Productos Distribuidos" value={values.productos_distribuidos} />
-          <GridItem colSpan={{ base: 1, md: 2 }}>
-            <InfoItem label="Sucursales" value={values.sucursales} />
-          </GridItem>
-        </SimpleGrid>
-      </Box>
-
-      {/* --- 3. Información Bancaria --- */}
-      <Box borderWidth="1px" borderRadius="lg" p={6} borderColor={borderColor}>
-        <SectionHeader icon={MdAccountBalance} title="Información Bancaria" />
-        <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
-          <InfoItem label="Nombre en la Cuenta" value={values.cuenta_bancaria} />
-          <InfoItem label="Número de Cuenta" value={values.numeroCuenta} />
-          <InfoItem label="Tipo de Cuenta" value={values.tipoCuenta} />
-          <InfoItem label="Banco" value={values.banco} />
-        </SimpleGrid>
-      </Box>
-
-      {/* --- 4. Referencias --- */}
-      <Box borderWidth="1px" borderRadius="lg" p={6} borderColor={borderColor}>
-        <SectionHeader icon={MdPeople} title="Referencias Comerciales" />
-        {values.referencias?.length > 0 ? (
-          <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
-            {values.referencias.map((ref, index) => (
-              <Box key={index} p={4} bg={useColorModeValue('gray.50', 'gray.700')} borderRadius="md">
-                <Text fontWeight="bold" mb={2}>Referencia {index + 1}</Text>
-                <InfoItem label="Nombre" value={ref.nombres} />
-                <InfoItem label="Teléfono" value={ref.telefono} />
-                <InfoItem label="Relación" value={ref.relacion} />
-              </Box>
-            ))}
-          </SimpleGrid>
-        ) : (
-          <Text color="gray.500">No se han añadido referencias.</Text>
-        )}
-      </Box>
-
-      {/* --- 5. Documentos Cargados --- */}
-      <Box borderWidth="1px" borderRadius="lg" p={6} borderColor={borderColor}>
-        <SectionHeader icon={MdFileCopy} title="Documentos Cargados" />
-        <List spacing={3}>
-          {values.documentos ? (
-            Object.entries(values.documentos)
-              .filter(([, file]) => file != null) // Filtrar los que no se subieron
-              .map(([key, file]) => (
-                <ListItem key={key}>
-                  <HStack>
-                    <ListIcon as={MdCheckCircle} color="green.500" />
-                    <Text as="span" fontWeight="bold">
-                      {/* Usamos VALIDATION_CONFIG para obtener una etiqueta legible */}
-                      {VALIDATION_CONFIG[key]?.label || key}:
-                    </Text>
-                    {/* REFACTOR: Leemos .name y .size del objeto File */}
-                    <Text color="gray.600">{file.name}</Text>
-                    <Text fontSize="sm" color="gray.500">
-                      ({formatFileSize(file.size)})
-                    </Text>
-                  </HStack>
-                </ListItem>
-              ))
-          ) : (
-            <Text color="gray.500">No se han cargado documentos.</Text>
-          )}
-        </List>
-      </Box>
-
-      {/* 3. Botones de navegación (solo 'Atrás') */}
-      <Divider my={10} />
-      <Flex mt={6} justify="flex-start">
-        <Button
-          onClick={goToPrevious}
-          isDisabled={isSubmitting}
-        >
-          Atrás
-        </Button>
-      </Flex>
-    </VStack>
+    <GridItem>
+      <VStack align="start" spacing={1}>
+        <Text fontSize="sm" fontWeight="bold" color="gray.600">
+          {label}
+        </Text>
+        <Text fontSize="md">
+          {value}
+        </Text>
+      </VStack>
+    </GridItem>
   );
 };
 

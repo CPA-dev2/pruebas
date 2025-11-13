@@ -1,181 +1,369 @@
-/**
- * @file Paso 5 del formulario: Carga de Documentos.
- * Maneja su propio Formik y guarda los objetos File crudos en el contexto.
- * Esta arquitectura es de alto rendimiento y no bloquea el navegador.
- */
-import React from 'react';
-import { Formik, Form, ErrorMessage } from 'formik';
+import React, { useEffect, useRef } from 'react';
+import { Formik, Form } from 'formik';
 import * as Yup from 'yup';
 import {
-  VStack, Grid, GridItem, Alert, AlertIcon, 
-  Heading, Button, Flex, Divider, FormErrorMessage
+  VStack, Grid, GridItem, Button, Alert, AlertIcon, 
+  Text, Box, Heading
 } from '@chakra-ui/react';
 import FileUploader from '../../../../components/Componentes_reutilizables/FileUpload/FileUploader';
-import { useRegistrationForm } from '../../../context/RegistrationContext';
-import { DOCUMENT_TYPES } from '../../../../components/Componentes_reutilizables/FileUpload/FileValidation';
 
-// 1. Schema de validación local del paso
-// Valida que cada archivo sea un objeto 'File' (usando Yup.mixed())
-export const validationSchema = Yup.object().shape({
-  documentos: Yup.object().shape({
-    [DOCUMENT_TYPES.DPI_FRONTAL]: Yup.mixed().nullable().required('El DPI frontal es obligatorio.'),
-    [DOCUMENT_TYPES.DPI_POSTERIOR]: Yup.mixed().nullable().required('El DPI posterior es obligatorio.'),
-    [DOCUMENT_TYPES.RTU]: Yup.mixed().nullable().required('El RTU es obligatorio.'),
-    [DOCUMENT_TYPES.PATENTE_COMERCIO]: Yup.mixed().nullable().required('La Patente de Comercio es obligatoria.'),
-    [DOCUMENT_TYPES.FACTURA_SERVICIO]: Yup.mixed().nullable().required('La factura de servicio es obligatoria.'),
-  }),
+// VALIDACIÓN MEJORADA PARA DOCUMENTOS
+const validationSchema = Yup.object({
+  documentos: Yup.array()
+    .min(4, 'Debes subir al menos los 4 documentos obligatorios')
+    .test('required-documents', 'Faltan documentos obligatorios', function(documentos) {
+      const requeridos = ['dpi_frontal', 'dpi_posterior', 'rtu', 'patente_comercio'];
+      const subidos = documentos?.map(doc => doc.tipo) || [];
+      
+      const faltantes = requeridos.filter(tipo => !subidos.includes(tipo));
+      
+      if (faltantes.length > 0) {
+        const labels = {
+          'dpi_frontal': 'DPI Frontal',
+          'dpi_posterior': 'DPI Posterior',
+          'rtu': 'RTU',
+          'patente_comercio': 'Patente de Comercio'
+        };
+        const faltantesTexto = faltantes.map(tipo => labels[tipo]).join(', ');
+        return this.createError({
+          message: `Faltan los siguientes documentos: ${faltantesTexto}`
+        });
+      }
+
+
+      //validar el tipo de documento rtu debe ser pdf y no debe ser mayor a 5mb
+      const rtuDoc = documentos.find(doc => doc.tipo === 'rtu');
+      if (rtuDoc) {
+        if (rtuDoc.archivo && rtuDoc.archivo.type !== 'application/pdf') {
+          return this.createError({
+            message: 'El documento RTU debe ser un archivo PDF'
+          });
+        }
+        
+        if (rtuDoc.archivo && rtuDoc.archivo.size > 5 * 1024 * 1024) {
+          return this.createError({
+            message: 'El documento RTU no debe superar los 5MB'
+          });
+        }
+      }
+
+      // Validar que el resto de documentos sean imagenes (jpeg, png) y no mayores a 5MB
+      for (const doc of documentos) {
+        if (doc.tipo !== 'rtu') {
+          if (doc.archivo && 
+              !['image/jpeg', 'image/png'].includes(doc.archivo.type)) {
+            return this.createError({
+              message: `El documento ${doc.tipo} debe ser una imagen JPEG o PNG`
+            });
+          }
+          
+          if (doc.archivo && doc.archivo.size > 5 * 1024 * 1024) {
+            return this.createError({
+              message: `El documento ${doc.tipo} no debe superar los 5MB`
+            });
+          }
+        }
+      }
+
+      return true;
+    })
+    .test('valid-files', 'Hay archivos con problemas', function(documentos) {
+      if (!documentos || documentos.length === 0) return true;
+      
+      for (const doc of documentos) {
+        if (!doc.archivo || !(doc.archivo instanceof File)) {
+          return this.createError({
+            message: `El archivo ${doc.tipo} no es válido`
+          });
+        }
+        
+        // Validar tamaño máximo 10MB
+        if (doc.archivo.size > 5 * 1024 * 1024) {
+          return this.createError({
+            message: `El archivo ${doc.tipo} no debe superar 5MB`
+          });
+        }
+      }
+      
+      return true;
+    })
 });
 
-const DocumentsStep = () => {
-  // 2. Obtener datos y acciones del contexto
-  const { formData, updateFormData, goToNext, goToPrevious } = useRegistrationForm();
+const DocumentsStep = ({ formData, updateFormData, onNext }) => {
+  
+  // REF PARA CACHEAR URLs DE PREVIEW
+  const previewUrlsRef = useRef(new Map());
+  
+  // CLEANUP SOLO AL DESMONTAR EL COMPONENTE
+  useEffect(() => {
+    return () => {
+      // Limpiar URLs cacheadas al desmontar
+      previewUrlsRef.current.forEach((url, key) => {
+        if (url && url.startsWith('blob:')) {
+          URL.revokeObjectURL(url);
+          
+        }
+      });
+      previewUrlsRef.current.clear();
+    };
+  }, []); // Solo al desmontar
+  
+  // FUNCIÓN PARA MANEJAR SUBIDA DE ARCHIVOS
+  const handleFileUpload = (fileData, setFieldValue, currentValues) => {
+    const nuevosDocumentos = [...(currentValues.documentos || [])];
+    const index = nuevosDocumentos.findIndex(doc => doc.tipo === fileData.type);
+    
+    // Si ya existe, limpiar el anterior
+    if (index >= 0) {
+      const docAnterior = nuevosDocumentos[index];
+      const claveAnterior = `${docAnterior.tipo}_${docAnterior.nombre}_${docAnterior.tamaño}`;
+      
+      // Limpiar cache y preview anterior
+      if (previewUrlsRef.current.has(claveAnterior)) {
+        const urlAnterior = previewUrlsRef.current.get(claveAnterior);
+        URL.revokeObjectURL(urlAnterior);
+        previewUrlsRef.current.delete(claveAnterior);
+      }
+    }
+    
+    // Crear nuevo documento
+    const nuevoDocumento = {
+      tipo: fileData.type,
+      archivo: fileData.file,
+      preview: fileData.preview,
+      nombre: fileData.file.name,
+      tamaño: fileData.file.size,
+      fechaSubida: new Date().toISOString()
+    };
+    
+    // Guardar en cache
+    const nuevaClave = `${fileData.type}_${fileData.file.name}_${fileData.file.size}`;
+    previewUrlsRef.current.set(nuevaClave, fileData.preview);
+    
+    if (index >= 0) {
+      nuevosDocumentos[index] = nuevoDocumento;
+    } else {
+      nuevosDocumentos.push(nuevoDocumento);
+    }
+    
+    setFieldValue('documentos', nuevosDocumentos);
+    
+  };
+  
+  // FUNCIÓN PARA REMOVER ARCHIVOS
+  const handleFileRemove = (tipo, setFieldValue, currentValues) => {
+    const documentoARemover = currentValues.documentos?.find(doc => doc.tipo === tipo);
+    
+    if (documentoARemover) {
+      // Limpiar cache
+      const clave = `${documentoARemover.tipo}_${documentoARemover.nombre}_${documentoARemover.tamaño}`;
+      if (previewUrlsRef.current.has(clave)) {
+        const url = previewUrlsRef.current.get(clave);
+        URL.revokeObjectURL(url);
+        previewUrlsRef.current.delete(clave);
+      }
+      
+      // Limpiar preview
+      if (documentoARemover.preview && documentoARemover.preview.startsWith('blob:')) {
+        URL.revokeObjectURL(documentoARemover.preview);
+      }
+    }
+    
+    const nuevosDocumentos = currentValues.documentos?.filter(doc => doc.tipo !== tipo) || [];
+    setFieldValue('documentos', nuevosDocumentos);
+  };
+  
+  // HELPER PARA OBTENER DOCUMENTO POR TIPO
+  // HELPER PARA OBTENER DOCUMENTO CON PREVIEW GARANTIZADO
+  const getDocumentoByTipo = (documentos, tipo) => {
+    const documento = documentos?.find(doc => doc.tipo === tipo);
+    
+    if (!documento) return undefined;
+    
+    // Si es una imagen, asegurar que tenga preview válido
+    if (documento.archivo && 
+        documento.archivo.type && 
+        documento.archivo.type.startsWith('image/')) {
+      
+      const fileKey = `${documento.tipo}_${documento.nombre}_${documento.tamaño}`;
+      
+      // Si ya tiene un preview válido, usarlo
+      if (documento.preview && documento.preview.startsWith('blob:')) {
+        // Actualizar cache si no está
+        if (!previewUrlsRef.current.has(fileKey)) {
+          previewUrlsRef.current.set(fileKey, documento.preview);
+        }
+        return documento;
+      }
+      
+      // Si tenemos en cache, usarlo
+      if (previewUrlsRef.current.has(fileKey)) {
+        const cachedUrl = previewUrlsRef.current.get(fileKey);
+        return {
+          ...documento,
+          preview: cachedUrl
+        };
+      }
+      
+      // Crear nuevo preview solo si no existe
+      const nuevoPreview = URL.createObjectURL(documento.archivo);
+      previewUrlsRef.current.set(fileKey, nuevoPreview);
+            
+      return {
+        ...documento,
+        preview: nuevoPreview
+      };
+    }
+    
+    return documento;
+  };
 
-  /**
-   * Manejador de envío local: Guarda los archivos en el contexto y avanza.
-   */
-  const handleSubmit = (values, { setSubmitting }) => {
-    updateFormData(values); // Guarda el objeto { documentos: { ... } }
-    goToNext();
-    setSubmitting(false);
+  // FUNCIÓN DE ENVÍO
+  const handleSubmit = (values) => {
+    console.log('Datos completos del step:', values);
+    console.log('Archivos a enviar:', values.documentos?.map(doc => ({
+      tipo: doc.tipo,
+      nombre: doc.nombre,
+      tamaño: doc.tamaño,
+      esArchivoValido: doc.archivo instanceof File
+    })));
+    
+    // Actualizar el estado global del formulario
+    updateFormData(values);
+    
+    // Continuar al siguiente paso
+    onNext();
   };
 
   return (
-    // 3. Formik local para este paso
-    <Formik
-      initialValues={{
-        documentos: formData.documentos,
-      }}
-      validationSchema={validationSchema}
-      onSubmit={handleSubmit}
-    >
-      {({ values, errors, touched, setFieldValue, isSubmitting }) => (
-        <Form>
-          <VStack spacing={6} align="stretch">
-            <Heading size="lg" mb={4} fontWeight="semibold">
-              Documentación Requerida
-            </Heading>
-            
-            <Grid templateColumns={{ base: '1fr', md: 'repeat(2, 1fr)' }} gap={6}>
+    <Box>
+      <VStack spacing={6} align="stretch" mb={8}>
+       
+        <Text fontSize="md" color="gray.600">
+          Sube los documentos necesarios para tu registro como distribuidor. 
+          Todos los archivos deben ser claros y legibles.
+        </Text>
+      </VStack>
+
+      <Formik
+        initialValues={{
+          documentos: formData.documentos || []
+        }}
+        validationSchema={validationSchema}
+        onSubmit={handleSubmit}
+      >
+        {({ values, setFieldValue, errors, touched, isSubmitting }) => (
+          <Form style={{ width: '100%' }}>
+            <VStack spacing={8} align="stretch">
               
-              {/* REFACTOR: La lógica de 'handleFileChange' ahora es más simple
-                   y se pasa directamente. Guarda el objeto File, no Base64. */}
+              {/* GRID DE DOCUMENTOS OBLIGATORIOS */}
+              <Box>
+                <Text fontSize="lg" fontWeight="bold" mb={4} color="gray.700">
+                  Documentos Obligatorios
+                </Text>
+                
+                <Grid templateColumns="repeat(auto-fit, minmax(300px, 1fr))" gap={6}>
+                  
+                  {/* DPI FRONTAL */}
+                  <GridItem>
+                    <FileUploader
+                      documentType="dpi_frontal"
+                      required={true}
+                      file={getDocumentoByTipo(values.documentos, 'dpi_frontal')?.archivo}
+                      preview={getDocumentoByTipo(values.documentos, 'dpi_frontal')?.preview}
+                      onFileSelect={(fileData) => handleFileUpload(fileData, setFieldValue, values)}
+                      onFileRemove={() => handleFileRemove('dpi_frontal', setFieldValue, values)}
+                      disabled={isSubmitting}
+                    />
+                  </GridItem>
+                  
+                  {/* DPI POSTERIOR */}
+                  <GridItem>
+                    <FileUploader
+                      documentType="dpi_posterior"
+                      required={true}
+                      file={getDocumentoByTipo(values.documentos, 'dpi_posterior')?.archivo}
+                      preview={getDocumentoByTipo(values.documentos, 'dpi_posterior')?.preview}
+                      onFileSelect={(fileData) => handleFileUpload(fileData, setFieldValue, values)}
+                      onFileRemove={() => handleFileRemove('dpi_posterior', setFieldValue, values)}
+                      disabled={isSubmitting}
+                    />
+                  </GridItem>
+
+                  {/* RTU */}
+                  <GridItem>
+                    <FileUploader
+                      documentType="rtu"
+                      required={true}
+                      file={getDocumentoByTipo(values.documentos, 'rtu')?.archivo}
+                      preview={getDocumentoByTipo(values.documentos, 'rtu')?.preview}
+                      onFileSelect={(fileData) => handleFileUpload(fileData, setFieldValue, values)}
+                      onFileRemove={() => handleFileRemove('rtu', setFieldValue, values)}
+                      disabled={isSubmitting}
+                    />
+                  </GridItem>
+
+                  {/* PATENTE DE COMERCIO */}
+                  <GridItem>
+                    <FileUploader
+                      documentType="patente_comercio"
+                      required={true}
+                      file={getDocumentoByTipo(values.documentos, 'patente_comercio')?.archivo}
+                      preview={getDocumentoByTipo(values.documentos, 'patente_comercio')?.preview}
+                      onFileSelect={(fileData) => handleFileUpload(fileData, setFieldValue, values)}
+                      onFileRemove={() => handleFileRemove('patente_comercio', setFieldValue, values)}
+                      disabled={isSubmitting}
+                    />
+                  </GridItem>
+
+                </Grid>
+
+              </Box>
+
+             
               
-              <GridItem>
-                <FileUploader
-                  label="DPI (Lado Frontal) *"
-                  documentType={DOCUMENT_TYPES.DPI_FRONTAL}
-                  file={values.documentos[DOCUMENT_TYPES.DPI_FRONTAL]}
-                  error={errors.documentos?.[DOCUMENT_TYPES.DPI_FRONTAL] && touched.documentos?.[DOCUMENT_TYPES.DPI_FRONTAL]}
-                  onFileSelect={(file) => setFieldValue(`documentos.${DOCUMENT_TYPES.DPI_FRONTAL}`, file)}
-                  onFileRemove={() => setFieldValue(`documentos.${DOCUMENT_TYPES.DPI_FRONTAL}`, null)}
-                />
-                {/* Mostrar error de Yup si existe */}
-                {errors.documentos?.[DOCUMENT_TYPES.DPI_FRONTAL] && touched.documentos?.[DOCUMENT_TYPES.DPI_FRONTAL] && (
-                  <FormErrorMessage mt={2} d="block">
-                    {errors.documentos[DOCUMENT_TYPES.DPI_FRONTAL]}
-                  </FormErrorMessage>
-                )}
-              </GridItem>
-
-              <GridItem>
-                <FileUploader
-                  label="DPI (Lado Posterior) *"
-                  documentType={DOCUMENT_TYPES.DPI_POSTERIOR}
-                  file={values.documentos[DOCUMENT_TYPES.DPI_POSTERIOR]}
-                  error={errors.documentos?.[DOCUMENT_TYPES.DPI_POSTERIOR] && touched.documentos?.[DOCUMENT_TYPES.DPI_POSTERIOR]}
-                  onFileSelect={(file) => setFieldValue(`documentos.${DOCUMENT_TYPES.DPI_POSTERIOR}`, file)}
-                  onFileRemove={() => setFieldValue(`documentos.${DOCUMENT_TYPES.DPI_POSTERIOR}`, null)}
-                />
-                {errors.documentos?.[DOCUMENT_TYPES.DPI_POSTERIOR] && touched.documentos?.[DOCUMENT_TYPES.DPI_POSTERIOR] && (
-                  <FormErrorMessage mt={2} d="block">
-                    {errors.documentos[DOCUMENT_TYPES.DPI_POSTERIOR]}
-                  </FormErrorMessage>
-                )}
-              </GridItem>
-
-              <GridItem>
-                <FileUploader
-                  label="RTU (Actualizado) *"
-                  documentType={DOCUMENT_TYPES.RTU}
-                  file={values.documentos[DOCUMENT_TYPES.RTU]}
-                  error={errors.documentos?.[DOCUMENT_TYPES.RTU] && touched.documentos?.[DOCUMENT_TYPES.RTU]}
-                  onFileSelect={(file) => setFieldValue(`documentos.${DOCUMENT_TYPES.RTU}`, file)}
-                  onFileRemove={() => setFieldValue(`documentos.${DOCUMENT_TYPES.RTU}`, null)}
-                />
-                {errors.documentos?.[DOCUMENT_TYPES.RTU] && touched.documentos?.[DOCUMENT_TYPES.RTU] && (
-                  <FormErrorMessage mt={2} d="block">
-                    {errors.documentos[DOCUMENT_TYPES.RTU]}
-                  </FormErrorMessage>
-                )}
-              </GridItem>
-
-              <GridItem>
-                <FileUploader
-                  label="Patente de Comercio *"
-                  documentType={DOCUMENT_TYPES.PATENTE_COMERCIO}
-                  file={values.documentos[DOCUMENT_TYPES.PATENTE_COMERCIO]}
-                  error={errors.documentos?.[DOCUMENT_TYPES.PATENTE_COMERCIO] && touched.documentos?.[DOCUMENT_TYPES.PATENTE_COMERCIO]}
-                  onFileSelect={(file) => setFieldValue(`documentos.${DOCUMENT_TYPES.PATENTE_COMERCIO}`, file)}
-                  onFileRemove={() => setFieldValue(`documentos.${DOCUMENT_TYPES.PATENTE_COMERCIO}`, null)}
-                />
-                {errors.documentos?.[DOCUMENT_TYPES.PATENTE_COMERCIO] && touched.documentos?.[DOCUMENT_TYPES.PATENTE_COMERCIO] && (
-                  <FormErrorMessage mt={2} d="block">
-                    {errors.documentos[DOCUMENT_TYPES.PATENTE_COMERCIO]}
-                  </FormErrorMessage>
-                )}
-              </GridItem>
-              
-              <GridItem>
-                <FileUploader
-                  label="Factura Reciente (Luz, Agua, Tel) *"
-                  documentType={DOCUMENT_TYPES.FACTURA_SERVICIO}
-                  file={values.documentos[DOCUMENT_TYPES.FACTURA_SERVICIO]}
-                  error={errors.documentos?.[DOCUMENT_TYPES.FACTURA_SERVICIO] && touched.documentos?.[DOCUMENT_TYPES.FACTURA_SERVICIO]}
-                  onFileSelect={(file) => setFieldValue(`documentos.${DOCUMENT_TYPES.FACTURA_SERVICIO}`, file)}
-                  onFileRemove={() => setFieldValue(`documentos.${DOCUMENT_TYPES.FACTURA_SERVICIO}`, null)}
-                />
-                {errors.documentos?.[DOCUMENT_TYPES.FACTURA_SERVICIO] && touched.documentos?.[DOCUMENT_TYPES.FACTURA_SERVICIO] && (
-                  <FormErrorMessage mt={2} d="block">
-                    {errors.documentos[DOCUMENT_TYPES.FACTURA_SERVICIO]}
-                  </FormErrorMessage>
-                )}
-              </GridItem>
-
-            </Grid>
-            
-            {/* Error general (si el schema lo envía como string) */}
-            <ErrorMessage name="documentos">
-              {msg => (
-                typeof msg === 'string' && (
-                  <Alert status="error" borderRadius="md">
-                    <AlertIcon />
-                    {msg}
-                  </Alert>
-                )
+              {/* RESUMEN DE ARCHIVOS SUBIDOS */}
+              {values.documentos && values.documentos.length > 0 && (
+                <Box p={4} bg="green.50" borderRadius="md" border="1px solid" borderColor="green.200">
+                  <Text fontSize="md" fontWeight="bold" color="green.700" mb={2}>
+                    Archivos subidos ({values.documentos.length})
+                  </Text>
+                  {values.documentos.map((doc, index) => (
+                    <Text key={index} fontSize="sm" color="green.600">
+                      • {doc.tipo}: {doc.nombre} ({(doc.tamaño / 1024 / 1024).toFixed(2)} MB)
+                    </Text>
+                  ))}
+                </Box>
               )}
-            </ErrorMessage>
-
-            {/* 4. Botones de navegación locales */}
-            <Divider my={10} />
-            <Flex mt={6} justify="space-between">
-              <Button
-                onClick={goToPrevious}
-                isDisabled={isSubmitting}
-              >
-                Atrás
-              </Button>
-              <Button
-                type="submit"
-                colorScheme="orange"
+              
+              {/* ERRORES DE VALIDACIÓN */}
+              {errors.documentos && touched.documentos && (
+                <Alert status="error" borderRadius="md">
+                  <AlertIcon />
+                  <Box>
+                    <Text fontWeight="bold">Error en documentos:</Text>
+                    <Text>{errors.documentos}</Text>
+                  </Box>
+                </Alert>
+              )}
+              
+              {/* BOTÓN DE CONTINUAR */}
+              <Button 
+                type="submit" 
+                colorScheme="orange" 
+                size="lg" 
+                w="full"
                 isLoading={isSubmitting}
+                loadingText="Procesando documentos..."
               >
-                Siguiente
+                Continuar al Siguiente Paso
               </Button>
-            </Flex>
-          </VStack>
-        </Form>
-      )}
-    </Formik>
+              
+            </VStack>
+          </Form>
+        )}
+      </Formik>
+    </Box>
   );
 };
 

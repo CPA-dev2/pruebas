@@ -1,48 +1,49 @@
-"""
-Define el modelo de la base de datos para los Documentos
-de un Distribuidor APROBADO.
-"""
 from django.db import models
+
+from api.models import distributor
 from .base_model import BaseModel
-from .distributor import Distributor # <-- Importa el modelo Distributor principal
 
 class Document(BaseModel):
     """
-    Almacena un archivo (DPI, RTU, etc.) asociado a un
-    Distribuidor activo.
+    Representa un documento asociado a un distribuidor.
+
+    Los documentos son archivos que contienen información relevante sobre
+    un distribuidor. Hereda de `BaseModel` para incluir campos de auditoría
+    y borrado lógico.
+
+    Attributes:
+        distribuidor (ForeignKey): Relación con el modelo `Distributor`.
+        tipo_documento (str): El tipo de documento (ej. "Contrato", "Identificación").
+        archivo (FileField): El archivo del documento.
     """
-    ESTADO_CHOICES = [
-        ('aprobado', 'Aprobado'),
-        ('rechazado', 'Rechazado'),
-    ]
-    
     distribuidor = models.ForeignKey(
-        Distributor,
+        distributor.Distributor,
         on_delete=models.CASCADE,
-        related_name="documentos", # Permite hacer `distributor.documentos.all()`
-        help_text="El distribuidor al que pertenece este documento."
+        related_name="documentos",
+        help_text="Distribuidor asociado al documento."
     )
-    
     tipo_documento = models.CharField(
-        max_length=50,
-        help_text="Tipo de documento (ej. 'rtu', 'dpi_frontal')."
+        max_length=100,
+        help_text="Tipo de documento (ej. 'Contrato', 'Identificación')."
     )
-    
     archivo = models.FileField(
-        upload_to="distributor_documents/",
-        help_text="El archivo físico almacenado."
+        upload_to='distribuidor/documentos/',
+        help_text="Archivo del documento."
     )
-    
     estado = models.CharField(
-        max_length=20,
-        choices=ESTADO_CHOICES,
-        default='aprobado',
-        help_text="Estado del documento (copiado de la solicitud)."
+        max_length=50,
+        blank=True,
+        null=True,
+        default=None,
+        help_text="Estado de verificación: NULL=no verificado, 'verificado'=aprobado, 'rechazado'=desestimado."
     )
 
     def __str__(self):
-        return f"{self.tipo_documento} de {self.distribuidor.negocio_nombre}"
+        """
+        Devuelve una representación en cadena del documento.
+        """
+        return f"{self.tipo_documento} - {self.distribuidor.nombres}"
 
     class Meta:
-        verbose_name = "Documento de Distribuidor"
-        verbose_name_plural = "Documentos de Distribuidor"
+        verbose_name = "Documento"
+        verbose_name_plural = "Documentos"

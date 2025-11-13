@@ -6,11 +6,9 @@ from .distributor import Distributor
 from .document import Document
 from .location import Location
 from .reference import Reference
-from .RegistrationDocument import RegistrationDocument
-from .RegistrationLocation import RegistrationLocation
-from .RegistrationReference import RegistrationReference
-from .RegistrationRevision import RegistrationRevision
-from .RegistrationTracking import RegistrationTracking
+from .assignmentdistributor import Assignmentdistributor
+from .revisiondistributor import Revisiondistributor
+from .trackingdistributor import Trackingdistributor
 from .client import Client
 from .auditlog import Auditlog
 
@@ -24,10 +22,8 @@ __all__ = [
     'Document',
     'Location',
     'Reference',
-    'RegistrationDocument',
-    'RegistrationLocation',
-    'RegistrationReference',
-    'RegistrationRevision',
-    'RegistrationTracking',
+    'Assignmentdistributor',
+    'Revisiondistributor',
+    'Trackingdistributor',
     'Client',
 ]

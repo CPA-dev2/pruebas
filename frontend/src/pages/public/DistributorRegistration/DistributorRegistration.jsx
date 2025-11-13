@@ -1,155 +1,357 @@
-/**
- * @file Componente Orquestador para el Registro de Distribuidores.
- * Utiliza un Contexto (`RegistrationProvider`) para manejar el estado global
- * y renderiza el paso activo.
- */
 import React, { useState } from 'react';
 import {
-  Box, Stepper, Step, StepIndicator, StepStatus, StepIcon, StepNumber,
-  StepTitle, StepDescription, StepSeparator, Button, Heading, Text,
-  VStack, Container, Alert, AlertIcon, AlertTitle, AlertDescription,
-  Flex, Card, CardHeader, CardBody, Divider, Icon
+  Box, Container, Heading, Text, VStack, HStack, Progress, 
+  Button, Card, CardBody, useColorModeValue, Flex, Icon,
+  Alert, AlertIcon, AlertTitle, AlertDescription
 } from '@chakra-ui/react';
-import { MdCheckCircle } from 'react-icons/md';
+import { ChevronLeftIcon, ChevronRightIcon, CheckIcon } from '@chakra-ui/icons';
+import { FaUser, FaBuilding, FaFileAlt, FaUsers, FaUniversity, FaEye } from 'react-icons/fa';
+import DistributorService from '../../../services/DistributorService';
 import { showSuccess, handleError } from '../../../services/NotificationService';
-import RegistrationService from '../../../services/RegistrationService'; // Importar el nuevo servicio
-// 1. Importar el Proveedor de Contexto y el Hook
-import { RegistrationProvider, useRegistrationForm } from '../../../context/RegistrationContext';
+import {validateTotalFileSize } from '../../../utils/fileUtils';
 
-// 2. Importar los componentes de paso
+// Importar los componentes de cada paso (los crearemos después)
 import PersonalInfoStep from './steps/PersonalInfoStep';
-import BusinessInfoStep from './steps/BusinessInfoStep';
-import BankingInfoStep from './steps/BankingInfoStep';
-import ReferencesStep from './steps/ReferencesStep';
+import BusinessInfoStep from './steps/BusinessInfoStep'; 
 import DocumentsStep from './steps/DocumentsStep';
+import ReferencesStep from './steps/ReferencesStep';
+import BankingInfoStep from './steps/BankingInfoStep';
 import ReviewStep from './steps/ReviewStep';
 
 /**
- * Componente interno que renderiza el formulario.
- * Consume el contexto y maneja la lógica de envío.
+ * Página de registro público para distribuidores
+ * Formulario multi-paso con validación y manejo de archivos
  */
-const RegistrationForm = () => {
-  // 3. Obtener estado y acciones del contexto
-  const { steps, activeStep, formData, resetForm, isLastStep } = useRegistrationForm();
+const DistributorRegistration = () => {
+  const bgColor = useColorModeValue('gray.50', 'gray.900');
+  const cardBg = useColorModeValue('white', 'gray.800');
+  
+  // Estado del formulario multi-paso
+  const [currentStep, setCurrentStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submissionError, setSubmissionError] = useState(null);
-  const [isSuccess, setIsSuccess] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [formData, setFormData] = useState({
+    // Información personal
+    nombres: '',
+    apellidos: '',
+    dpi: '',
+    correo: '',
+    telefono: '',
+    departamento: '',
+    municipio: '',
+    direccion: '',
+    tipoPersona: '',
+    
+    // Información del negocio
+    telefonoNegocio: '',
+    antiguedad: '',
+    productosDistribuidos: '',
+    equipamiento: '',
+    sucursales: '',
+    
+    // Información bancaria
+    cuentaBancaria: '',
+    numeroCuenta: '',
+    tipoCuenta: 'ahorro',
+    banco: '',
+    
+    // Documentos
+    documentos: [],
+    
+    // Referencias
+    referencias: []
+  });
 
-  /**
-   * Maneja el envío final del formulario al backend.
-   */
-  const handleFinalSubmit = async () => {
-    setSubmissionError(null);
+  // Configuración de los pasos
+  const steps = [
+    {
+      id: 1,
+      title: 'Información Personal',
+      icon: FaUser,
+      component: PersonalInfoStep,
+      description: 'Datos personales y de contacto'
+    },
+    {
+      id: 2,
+      title: 'Información del Negocio', 
+      icon: FaBuilding,
+      component: BusinessInfoStep,
+      description: 'Detalles de tu empresa o negocio'
+    },
+    {
+      id: 3,
+      title: 'Documentos',
+      icon: FaFileAlt,
+      component: DocumentsStep,
+      description: 'Subir documentos requeridos'
+    },
+    {
+      id: 4,
+      title: 'Referencias',
+      icon: FaUsers,
+      component: ReferencesStep,
+      description: 'Referencias comerciales y personales'
+    },
+    {
+      id: 5,
+      title: 'Información Bancaria',
+      icon: FaUniversity,
+      component: BankingInfoStep,
+      description: 'Datos de tu cuenta bancaria'
+    },
+    {
+      id: 6,
+      title: 'Revisión',
+      icon: FaEye,
+      component: ReviewStep,
+      description: 'Revisa y confirma tu información'
+    }
+  ];
+
+  const currentStepConfig = steps.find(step => step.id === currentStep);
+  const totalSteps = steps.length;
+  const progressPercentage = (currentStep / totalSteps) * 100;
+
+  // Handlers
+  const handleNext = () => {
+    if (currentStep < totalSteps) {
+      setCurrentStep(currentStep + 1);
+    }
+  };
+
+  const handlePrevious = () => {
+    if (currentStep > 1) {
+      setCurrentStep(currentStep - 1);
+    }
+  };
+
+  const handleStepClick = (stepId) => {
+    setCurrentStep(stepId);
+  };
+
+  const updateFormData = (stepData) => {
+    setFormData(prev => ({ ...prev, ...stepData }));
+  };
+
+  const handleSubmit = async () => {
     setIsSubmitting(true);
     try {
-      // 4. Llamar al servicio con el estado completo del formulario
-      await RegistrationService.createRegistrationRequest(formData);
+      // Validar tamaño total de archivos antes de procesar
+      const sizeValidation = validateTotalFileSize(formData.documentos);
+      if (!sizeValidation.isValid) {
+        throw new Error(`El tamaño total de archivos (${sizeValidation.formattedSize}) excede el límite máximo de ${sizeValidation.maxFormattedSize}`);
+      }
+
+        
+      const documentos = formData.documentos && formData.documentos.length > 0
+        ? formData.documentos.map(doc => ({
+            tipoDocumento: doc.tipo,
+            archivoData: doc.archivo,  
+            nombreArchivo: doc.archivo.name
+          }))
+        : [];
+    
+
+      // Preparar datos para la mutación GraphQL
+      const distributorData = {
+        // Información personal
+        nombres: formData.nombres,
+        apellidos: formData.apellidos,
+        dpi: formData.dpi,
+        correo: formData.correo,
+        telefono: formData.telefono,
+        departamento: formData.departamento,
+        municipio: formData.municipio,
+        direccion: formData.direccion,
+        tipoPersona: formData.tipoPersona,
+        
+        // Información del negocio
+        negocioNombre: formData.negocioNombre,
+        nit: formData.nit,
+        telefonoNegocio: formData.telefonoNegocio || null,
+        antiguedad: formData.antiguedad,
+        productosDistribuidos: formData.productosDistribuidos,
+        equipamiento: formData.equipamiento || null,
+        sucursales: formData.sucursales || null,
+        
+        // Información bancaria
+        cuentaBancaria: formData.cuentaBancaria || null,
+        numeroCuenta: formData.numeroCuenta || null,
+        tipoCuenta: formData.tipoCuenta || null,
+        banco: formData.banco || null,
+            
+        // Referencias (array de objetos)
+        referencias: formData.referencias.map(ref => ({
+          nombres: ref.nombres,
+          telefono: ref.telefono,
+          relacion: ref.relacion
+        })),
+
+        // Documentos (array de objetos tipo fileUpload)
+        documentos: documentos
+      };
+
+      const response = await DistributorService.createDistributor(distributorData);
       
-      setIsSuccess(true);
-      resetForm(); // Limpiar el formulario en el contexto
-      showSuccess("¡Registro Exitoso! Serás contactado pronto.");
+
+      if (response.data.data?.createDistributor?.distributor) {
+        setIsSubmitted(true);
+        showSuccess('¡Solicitud enviada exitosamente! Te contactaremos pronto.');
+      } else {
+        const errors = response.data.errors || ['Error desconocido al procesar la solicitud'];
+        throw new Error(errors.join(', '));
+      }
+    } catch (error) {
       
-    } catch (err) {
-      const errorMsg = err.response?.data?.errors?.[0]?.message || "No se pudo completar el registro.";
-      setSubmissionError(errorMsg);
-      handleError(errorMsg);
+      handleError(error);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // --- Renderizado de Éxito ---
-  if (isSuccess) {
+  // Si ya se envió la solicitud, mostrar mensaje de confirmación
+  if (isSubmitted) {
     return (
-      <Container maxW="container.md" py={12}>
-        <Card>
-          <CardBody>
-            <VStack spacing={6} textAlign="center" p={8}>
-              <Icon as={MdCheckCircle} boxSize={16} color="green.500" />
-              <Heading size="lg">¡Registro Exitoso!</Heading>
-              <Text fontSize="lg" color="gray.600">
-                Hemos recibido tu solicitud. Nuestro equipo la revisará.
+      <Box bg={bgColor} minH="100vh" py={10}>
+        <Container maxW="4xl">
+          <Card>
+            <CardBody textAlign="center" py={20}>
+              <Icon as={CheckIcon} boxSize={20} color="green.500" mb={6} />
+              <Heading size="lg" mb={4} color="green.600">
+                ¡Solicitud Enviada Exitosamente!
+              </Heading>
+              <Text fontSize="lg" color="gray.600" mb={6}>
+                Hemos recibido tu solicitud para convertirte en distribuidor. 
+                Nuestro equipo revisará tu información y te contactaremos en los próximos días.
               </Text>
-            </VStack>
-          </CardBody>
-        </Card>
-      </Container>
+              <Alert status="info" borderRadius="md">
+                <AlertIcon />
+                <Box>
+                  <AlertTitle>¿Qué sigue?</AlertTitle>
+                  <AlertDescription>
+                    <VStack align="start" mt={2} spacing={1}>
+                      <Text>• Revisaremos tu documentación</Text>
+                      <Text>• Verificaremos tus referencias</Text>
+                      <Text>• Te contactaremos para coordinar una entrevista</Text>
+                      <Text>• Recibirás la respuesta en un máximo de 5 días hábiles</Text>
+                    </VStack>
+                  </AlertDescription>
+                </Box>
+              </Alert>
+            </CardBody>
+          </Card>
+        </Container>
+      </Box>
     );
   }
 
-  // --- Renderizado del Formulario "Wizard" ---
   return (
-    <Container maxW="container.lg" py={12}>
-      <Card>
-        <CardHeader>
-          <VStack align="stretch" spacing={4}>
-            <Heading size="xl" textAlign="center">Registro de Nuevo Distribuidor</Heading>
-            <Text textAlign="center" color="gray.500">Sigue los pasos para completar tu solicitud.</Text>
-            <Stepper index={activeStep} colorScheme="orange" size="sm" my={4}>
-              {steps.map((step, index) => (
-                <Step key={index}>
-                  <StepIndicator>
-                    <StepStatus complete={<StepIcon />} incomplete={<StepNumber />} active={<StepNumber />} />
-                  </StepIndicator>
-                  <Box flexShrink="0" display={{ base: 'none', md: 'block' }}>
-                    <StepTitle>{step.title}</StepTitle>
-                    <StepDescription>{step.description}</StepDescription>
-                  </Box>
-                  <StepSeparator />
-                </Step>
-              ))}
-            </Stepper>
-            <Divider />
-          </VStack>
-        </CardHeader>
-        
-        <CardBody p={8}>
-          {/* 5. Renderizado condicional de cada paso */}
-          {/* Cada componente de paso ahora tiene su propio Formik interno */}
-          <Box display={activeStep === 0 ? 'block' : 'none'}><PersonalInfoStep /></Box>
-          <Box display={activeStep === 1 ? 'block' : 'none'}><BusinessInfoStep /></Box>
-          <Box display={activeStep === 2 ? 'block' : 'none'}><BankingInfoStep /></Box>
-          <Box display={activeStep === 3 ? 'block' : 'none'}><ReferencesStep /></Box>
-          <Box display={activeStep === 4 ? 'block' : 'none'}><DocumentsStep /></Box>
-          <Box display={activeStep === 5 ? 'block' : 'none'}>
-            <ReviewStep />
+    <Box bg={bgColor} minH="100vh" py={8}>
+      <Container maxW="6xl">
+        <VStack spacing={8}>
+          {/* Header */}
+          <Box textAlign="center">
+            <Heading size="xl" mb={2}>Registro de Distribuidor</Heading>
+            <Text fontSize="lg" color="gray.600">
+              Únete a nuestra red de afiliados y haz crecer tu negocio
+            </Text>
           </Box>
 
-          {/* Alerta de error global */}
-          {submissionError && (
-            <Alert status="error" borderRadius="md" my={6}>
-              <AlertIcon />
-              <AlertTitle>Error al enviar:</AlertTitle>
-              <AlertDescription>{submissionError}</AlertDescription>
-            </Alert>
-          )}
+          {/* Indicador del progreso */}
+          <Card w="full" bg={cardBg}>
+            <CardBody>
+              <VStack spacing={4}>
+                <Progress value={progressPercentage} colorScheme="orange" w="full" size="lg" />
+                <Text fontSize="sm" color="gray.600">
+                  Paso {currentStep} de {totalSteps}: {currentStepConfig?.title}
+                </Text>
+              </VStack>
+              
+              {/* Navegación entre pasos */}
+              <HStack justify="center" mt={6} spacing={4} flexWrap="wrap">
+                {steps.map((step) => (
+                  <Button
+                    key={step.id}
+                    size="sm"
+                    variant={currentStep === step.id ? "solid" : "outline"}
+                    colorScheme={currentStep >= step.id ? "orange" : "gray"}
+                    leftIcon={<Icon as={step.icon} />}
+                    onClick={() => handleStepClick(step.id)}
+                    minW="150px"
+                  >
+                    {step.title}
+                  </Button>
+                ))}
+              </HStack>
+            </CardBody>
+          </Card>
 
-          {/* Botón de envío final (solo en el último paso) */}
-          {isLastStep && (
-            <Flex mt={10} justify="flex-end">
+          {/* Contenido del Paso Actual */}
+          <Card w="full" bg={cardBg}>
+            <CardBody>
+              <VStack spacing={6}>
+                <Box textAlign="center">
+                  <Icon as={currentStepConfig.icon} boxSize={8} color="orange.500" mb={2} />
+                  <Heading size="md" mb={1}>{currentStepConfig.title}</Heading>
+                  <Text color="gray.600">{currentStepConfig.description}</Text>
+                </Box>
+
+                {/* Renderiza el componente del paso actual al vuelo*/}
+                {React.createElement(currentStepConfig.component, {
+                  formData,                                 //Datos del formulario completo
+                  updateFormData,                           //Función para actualizar datos
+                  onNext: handleNext,                       //Función para ir al siguiente paso
+                  onPrevious: handlePrevious,               //Función para ir al paso anterior
+                  isLastStep: currentStep === totalSteps,   //¿Es el último paso?
+                  onSubmit: handleSubmit,                   //Función para enviar el formulario final
+                  isSubmitting                              //Estado de carga al enviar
+                })}
+              </VStack>
+            </CardBody>
+          </Card>
+
+          {/* Navigation Buttons */}
+          <Flex justify="space-between" w="full" maxW="md">
+            <Button
+              leftIcon={<ChevronLeftIcon />}
+              onClick={handlePrevious}
+              isDisabled={currentStep === 1}
+              variant="outline"
+            >
+              Anterior
+            </Button>
+            
+            {currentStep === totalSteps ? (
               <Button
-                size="lg"
-                colorScheme="orange"
+                colorScheme="green"
+                onClick={handleSubmit}
                 isLoading={isSubmitting}
-                onClick={handleFinalSubmit}
+                loadingText="Enviando..."
+                size="lg"
               >
-                Finalizar y Enviar Solicitud
+                Enviar Solicitud
               </Button>
-            </Flex>
-          )}
-        </CardBody>
-      </Card>
-    </Container>
+            ) : (
+              <Button
+                rightIcon={<ChevronRightIcon />}
+                onClick={handleNext}
+                colorScheme="orange"
+              >
+                Siguiente
+              </Button>
+            )}
+          </Flex>
+
+          {/* Help Text */}
+          <Text fontSize="sm" color="gray.500" textAlign="center" maxW="md">
+            ¿Tienes preguntas? Contacta nuestro equipo de soporte al 
+            <Text as="span" fontWeight="bold" color="orange.500"> (502) 1234-5678</Text> o 
+            <Text as="span" fontWeight="bold" color="orange.500"> info@credicel.gt</Text>
+          </Text>
+        </VStack>
+      </Container>
+    </Box>
   );
 };
-
-/**
- * Componente de envoltura que provee el contexto al formulario.
- */
-const DistributorRegistration = () => (
-  <RegistrationProvider>
-    <RegistrationForm />
-  </RegistrationProvider>
-);
 
 export default DistributorRegistration;

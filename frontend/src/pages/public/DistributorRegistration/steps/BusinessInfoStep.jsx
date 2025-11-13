@@ -1,131 +1,152 @@
 import React from 'react';
-import { Field } from 'formik';
+import { Formik, Form, Field } from 'formik';
 import * as Yup from 'yup';
 import {
   VStack, Grid, GridItem, FormControl, FormLabel, Input, 
-  FormErrorMessage, Select, Heading, Textarea, RadioGroup, Radio, Stack
+  FormErrorMessage, Select, Button
 } from '@chakra-ui/react';
 
-// 1. Exportar el schema de validación
-export const validationSchema = Yup.object({
-  telefono_negocio: Yup.string()
+const validationSchema = Yup.object({
+  telefonoNegocio: Yup.string()
     .matches(/^\d{8}$/, 'El teléfono debe tener 8 dígitos')
-    .notRequired(),
+    .required('El teléfono es obligatorio'),
   equipamiento: Yup.string().required('El equipamiento es obligatorio'),
   sucursales: Yup.string().required('Las sucursales son obligatorias'),
   antiguedad: Yup.string().required('La antigüedad es obligatoria'),
-  productos_distribuidos: Yup.string().required('Los productos distribuidos son obligatorios'),
-  tipo_persona: Yup.string().required('El tipo de persona es obligatorio')
+  productosDistribuidos: Yup.string().required('Los productos distribuidos son obligatorios'),
+  tipoPersona: Yup.string().required('El tipo de persona es obligatorio')
 });
 
-// 2. Aceptar props de Formik
-const BusinessInfoStep = ({ errors, touched, setFieldValue }) => {
-  // 3. No hay <Formik>, <Form> ni handleSubmit
+const BusinessInfoStep = ({ formData, updateFormData, onNext }) => {
+  const handleSubmit = (values) => {
+    updateFormData(values);
+    onNext();
+  };
+
   return (
-    <VStack spacing={6} align="stretch">
-      <Heading size="lg" mb={4} fontWeight="semibold">
-        Información del Negocio
-      </Heading>
-      
-      <Grid templateColumns={{ base: '1fr', md: 'repeat(2, 1fr)' }} gap={4}>
-        
-        <GridItem colSpan={{ base: 1, md: 2 }}>
-          <Field name="tipo_persona">
-            {({ field }) => (
-              <FormControl isInvalid={errors.tipo_persona && touched.tipo_persona}>
-                <FormLabel htmlFor="tipo_persona">Tipo de Persona *</FormLabel>
-                <RadioGroup 
-                  {...field} 
-                  id="tipo_persona"
-                  onChange={value => setFieldValue('tipo_persona', value)} // Usar setFieldValue de props
-                  value={field.value}
-                >
-                  <Stack direction="row" spacing={5}>
-                    <Radio value="individual">Individual</Radio>
-                    <Radio value="juridica">Jurídica</Radio>
-                  </Stack>
-                </RadioGroup>
-                <FormErrorMessage>{errors.tipo_persona}</FormErrorMessage>
-              </FormControl>
-            )}
-          </Field>
-        </GridItem>
-        
-        <GridItem>
-          <Field name="telefono_negocio">
-            {({ field }) => (
-              <FormControl isInvalid={errors.telefono_negocio && touched.telefono_negocio}>
-                <FormLabel htmlFor="telefono_negocio">Teléfono del Negocio (Opcional)</FormLabel>
-                <Input {...field} id="telefono_negocio" placeholder="12345678" type="number" />
-                <FormErrorMessage>{errors.telefono_negocio}</FormErrorMessage>
-              </FormControl>
-            )}
-          </Field>
-        </GridItem>
+    <Formik
+      initialValues={{
+        telefonoNegocio: formData.telefonoNegocio || '',
+        equipamiento: formData.equipamiento || '',
+        sucursales: formData.sucursales || '',
+        antiguedad: formData.antiguedad || '',
+        productosDistribuidos: formData.productosDistribuidos || '',
+        tipoPersona: formData.tipoPersona || ''
+      }}
+      validationSchema={validationSchema}
+      onSubmit={handleSubmit}
+    >
+      {({ errors, touched }) => (
+        <Form style={{ width: '100%' }}>
+          <VStack spacing={6} align="stretch">
+            <Grid templateColumns="repeat(2, 1fr)" gap={4}>
+                            
+              <GridItem>
+                <Field name="telefonoNegocio">
+                  {({ field }) => (
+                    <FormControl isInvalid={errors.telefonoNegocio && touched.telefonoNegocio}>
+                      <FormLabel>Teléfono del Negocio *</FormLabel>
+                      <Input {...field} placeholder="12345678" />
+                      <FormErrorMessage>{errors.telefonoNegocio}</FormErrorMessage>
+                    </FormControl>
+                  )}
+                </Field>
+              </GridItem>
 
-        <GridItem>
-          <Field name="equipamiento">
-            {({ field }) => (
-              <FormControl isInvalid={errors.equipamiento && touched.equipamiento}>
-                <FormLabel htmlFor="equipamiento">Equipamiento *</FormLabel>
-                <Select {...field} id="equipamiento" placeholder="Seleccionar equipamiento">
-                  <option value="computadora_impresora">Computadora e Impresora</option>
-                  <option value="solo_computadora">Solo Computadora</option>
-                  <option value="ninguno">Ninguno</option>
-                </Select>
-                <FormErrorMessage>{errors.equipamiento}</FormErrorMessage>
-              </FormControl>
-            )}
-          </Field>
-        </GridItem>
+              <GridItem>
+                <Field name="sucursales">
+                  {({ field }) => (
+                    <FormControl>
+                      <FormLabel>Sucursales disponibles*</FormLabel>
+                      <Select {...field} placeholder="Seleccionar número de sucursales">
+                        <option value="1 sucursal">1 sucursal</option>
+                        <option value="2 sucursales">2 sucursales</option>
+                        <option value="3 sucursales">3 sucursales</option>
+                        <option value="4 sucursales">4 sucursales</option>
+                        <option value="5 sucursales">5 sucursales</option>
+                        <option value="Más de 5 sucursales">Más de 5 sucursales</option>
+                      </Select>
+                      <FormErrorMessage>{errors.sucursales}</FormErrorMessage>
+                    </FormControl>
+                  )}
+                </Field>
+              </GridItem>
 
-        <GridItem>
-          <Field name="antiguedad">
-            {({ field }) => (
-              <FormControl isInvalid={errors.antiguedad && touched.antiguedad}>
-                <FormLabel htmlFor="antiguedad">Antigüedad del Negocio *</FormLabel>
-                <Select {...field} id="antiguedad" placeholder="Seleccionar antigüedad">
-                  <option value="0-1">0-1 años</option>
-                  <option value="1-3">1-3 años</option>
-                  <option value="3-5">3-5 años</option>
-                  <option value="5+">Más de 5 años</option>
-                </Select>
-                <FormErrorMessage>{errors.antiguedad}</FormErrorMessage>
-              </FormControl>
-            )}
-          </Field>
-        </GridItem>
-        
-        <GridItem>
-          <Field name="productos_distribuidos">
-            {({ field }) => (
-              <FormControl isInvalid={errors.productos_distribuidos && touched.productos_distribuidos}>
-                <FormLabel htmlFor="productos_distribuidos">Productos Distribuidos *</FormLabel>
-                <Select {...field} id="productos_distribuidos" placeholder="Seleccionar productos">
-                  <option value="Celulares">Celulares</option>
-                  <option value="Electrodomésticos">Electrodomésticos</option>
-                  <option value="Computadoras y laptops">Computadoras y laptops</option>
-                  <option value="Celulares y electrodomésticos">Celulares y electrodomésticos</option>
-                 </Select>
-                <FormErrorMessage>{errors.productos_distribuidos}</FormErrorMessage>
-              </FormControl>
-            )}
-          </Field>
-        </GridItem>
-
-        <GridItem colSpan={{ base: 1, md: 2 }}>
-          <Field name="sucursales">
-            {({ field }) => (
-              <FormControl isInvalid={errors.sucursales && touched.sucursales}>
-                <FormLabel htmlFor="sucursales">Sucursales (direcciones) *</FormLabel>
-                <Textarea {...field} id="sucursales" rows={3} placeholder="Si no tiene, escriba 'Ninguna'" />
-                <FormErrorMessage>{errors.sucursales}</FormErrorMessage>
-              </FormControl>
-            )}
-          </Field>
-        </GridItem>
-      </Grid>
-    </VStack>
+              <GridItem>
+                <Field name="equipamiento">
+                  {({ field }) => (
+                    <FormControl>
+                      <FormLabel>Equipamiento para trabajar*</FormLabel>
+                       <Select {...field} placeholder="Seleccionar equipamiento">
+                         <option value="Pc de escritorio y laptops">Pc de escritorio y laptops</option>
+                         <option value="Tablets">Tablets</option>
+                         <option value="Celulares">Celulares</option>
+                         <option value="Ninguno">Ninguno</option>
+                       </Select>
+                         <FormErrorMessage>{errors.equipamiento}</FormErrorMessage>
+                         </FormControl>
+                     )}
+                     </Field>
+                 </GridItem>
+               
+             <GridItem>
+                <Field name="tipoPersona">
+                  {({ field }) => (
+                    <FormControl>
+                      <FormLabel>Tipo de Persona</FormLabel>
+                      <Select {...field} placeholder="Seleccionar tipo de entidad">
+                        <option value="natural">Persona Natural</option>
+                        <option value="juridica">Persona Jurídica</option>
+                      </Select>
+                    </FormControl>
+                  )}
+                </Field>
+              </GridItem>
+              
+              <GridItem>
+                <Field name="antiguedad">
+                  {({ field }) => (
+                    <FormControl isInvalid={errors.antiguedad && touched.antiguedad}>
+                      <FormLabel>Años en el mercado *</FormLabel>
+                      <Select {...field} placeholder="Seleccionar antigüedad en el mercado">
+                        <option value="1 año">1 año</option>
+                        <option value="2 años">2 años</option>
+                        <option value="3 años">3 años</option>
+                        <option value="4 años">4 años</option>
+                        <option value="5 años">5 años</option>
+                        <option value="más de 5 años">Más de 5 años</option>
+                      </Select>
+                      <FormErrorMessage>{errors.antiguedad}</FormErrorMessage>
+                    </FormControl>
+                  )}
+                </Field>
+              </GridItem>
+              
+              <GridItem>
+                <Field name="productosDistribuidos">
+                  {({ field }) => (
+                    <FormControl isInvalid={errors.productosDistribuidos && touched.productosDistribuidos}>
+                      <FormLabel>Productos Distribuidos *</FormLabel>
+                      <Select {...field} placeholder="Seleccionar productos distribuidos">
+                        <option value="Celulares">Celulares</option>
+                        <option value="Electrodomésticos">Electrodomésticos</option>
+                        <option value="Computadoras y laptops">Computadoras y laptops</option>
+                        <option value="Celulares y electrodomésticos">Celulares y electrodomésticos</option>
+                       </Select>
+                      <FormErrorMessage>{errors.productosDistribuidos}</FormErrorMessage>
+                    </FormControl>
+                  )}
+                </Field>
+              </GridItem>
+            </Grid>
+            
+            <Button type="submit" colorScheme="orange" size="lg" w="full">
+              Continuar al Siguiente Paso
+            </Button>
+          </VStack>
+        </Form>
+      )}
+    </Formik>
   );
 };
 
