@@ -33,6 +33,27 @@ class Rol(BaseModel):
         default=False,
         help_text="Permite al rol eliminar items."
     )
+    # --- Permisos del Flujo de Solicitudes ---
+    can_view_all_requests = models.BooleanField(
+        default=False, 
+        help_text="Ver todas las solicitudes, no solo las asignadas."
+    )
+    can_be_assigned = models.BooleanField(
+        default=False, 
+        help_text="Puede ser asignado para revisar solicitudes."
+    )
+    can_review_requests = models.BooleanField(
+        default=False, 
+        help_text="Permite revisar y dejar observaciones en una solicitud asignada."
+    )
+    can_request_corrections = models.BooleanField(
+        default=False, 
+        help_text="Permite devolver una solicitud al aplicante para correcciones."
+    )
+    can_authorize_requests = models.BooleanField(
+        default=False, 
+        help_text="Permite dar la aprobación/rechazo final (autorización)."
+    )
 
     def __str__(self):
         """
