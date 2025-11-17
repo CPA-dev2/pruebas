@@ -10,6 +10,7 @@ import UserDetailPage from "../pages/private/Users/UserDetailPage";
 import RolesPage from "../pages/private/Roles/RolesPage";
 import RoleEditPage from "../pages/private/Roles/RoleEditPage";
 import Dashboard from "../pages/private/Dashboard/Dashboard";
+import DistributorRegistration from "../pages/public/DistributorRegistration/index";
 
 export const routes = [
   {
@@ -76,6 +77,14 @@ export const routes = [
     // Ruta de login pública
     path: "/login",
     component: LoginPage,
+    isPrivate: false,
+    showSidebar: false,
+    accessValidate: false,
+  },
+  {
+    // Ruta de login pública
+    path: "/afiliate",
+    component: DistributorRegistration,
     isPrivate: false,
     showSidebar: false,
     accessValidate: false,

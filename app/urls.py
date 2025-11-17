@@ -7,11 +7,12 @@ from django.conf.urls.static import static
 from django.urls import path, include
 from django.views.decorators.csrf import csrf_exempt
 from graphene_django.views import GraphQLView
+from graphene_file_upload.django import FileUploadGraphQLView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     # La URL de GraphQL es el único endpoint de la API
-    path("graphql/", csrf_exempt(GraphQLView.as_view(graphiql=True))),
+    path("graphql/", csrf_exempt(FileUploadGraphQLView.as_view(graphiql=True))),
 ]
 
 # Servir archivos de medios en modo de desarrollo

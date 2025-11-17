@@ -10,14 +10,14 @@ const RoutesMain = () => {
   return (
     <Routes>
       {user ? (
-        // Si el usuario está autenticado, renderiza las rutas privadas
-        <Route path="/*" element={<PrivateRoutes />} />
-      ) : (
-        // Si no, renderiza las rutas públicas y redirige cualquier otra ruta a /login
+        // RUTAS PRIVADAS (Usuario autenticado)
         <>
-          <Route path="/login" element={<PublicRoutes />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
+          <Route path="/*" element={<PrivateRoutes />} />
         </>
+      ) : (
+        // RUTAS PÚBLICAS (Usuario anónimo)
+        // Cambiamos "/login" por "/*" para que PublicRoutes capture todas las URLs
+        <Route path="/*" element={<PublicRoutes />} />
       )}
     </Routes>
   );
