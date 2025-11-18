@@ -18,6 +18,9 @@ This is a comprehensive project template for building modern, secure, and scalab
 -   Python 3.10+
 -   Node.js 18+ & npm
 -   PostgreSQL
+-   tesseract-ocr
+-   tesseract-ocr-spa
+-   poppler-utils
 
 ## Installation
 

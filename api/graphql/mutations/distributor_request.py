@@ -1,5 +1,8 @@
 import graphene
 from graphene import relay
+# --- CORRECCIÓN 1: Importar from_global_id directamente ---
+from graphql_relay import from_global_id 
+# ----------------------------------------------------------
 from graphene_file_upload.scalars import Upload
 from django.db import transaction
 from graphql import GraphQLError
@@ -43,14 +46,9 @@ def check_request_editable(request_instance):
 
 # --- 1. Mutación de Creación (Pública / Borrador) ---
 class CreateDistributorRequestMutation(graphene.Mutation):
-    """
-    Crea el 'cascarón' de la solicitud. 
-    MODIFICADO: Solo NIT y Correo son obligatorios para permitir el paso 1 del Wizard.
-    """
     class Arguments:
         nit = graphene.String(required=True)
         correo = graphene.String(required=True)
-        # El resto son opcionales en la creación inicial
         nombres = graphene.String()
         apellidos = graphene.String()
         dpi = graphene.String()
@@ -75,28 +73,22 @@ class CreateDistributorRequestMutation(graphene.Mutation):
 
     @transaction.atomic
     def mutate(self, info, **kwargs):
-        # 1. Extraer y limpiar NIT
         raw_nit = kwargs.pop('nit', '') 
         nit_limpio = raw_nit.replace('-', '').replace(' ', '')
 
-        # 2. Validación duplicados
         if DistributorRequest.objects.filter(nit=nit_limpio, is_deleted=False).exclude(estado=RequestState.RECHAZADO).exists():
             raise GraphQLError("Ya existe una solicitud activa o aprobada con este NIT.")
 
-        # 3. Valores por defecto para evitar error de DB en campos obligatorios
         defaults = {
             'nombres': '', 'apellidos': '', 'dpi': '', 'telefono': '',
             'departamento': '', 'municipio': '', 'direccion': '',
             'tipo_persona': 'natural', 'antiguedad': '', 'productos_distribuidos': '',
             'cuenta_bancaria': '', 'numero_cuenta': '', 'tipo_cuenta': 'monetaria', 'banco': ''
         }
-        # Mezclar defaults con lo que venga en kwargs
         create_data = {**defaults, **kwargs}
 
-        # 4. Crear
         req = DistributorRequest.objects.create(nit=nit_limpio, **create_data)
         
-        # 5. Log
         RequestTracking.objects.create(
             request=req,
             estado_anterior=None,
@@ -108,10 +100,6 @@ class CreateDistributorRequestMutation(graphene.Mutation):
 
 # --- 2. Mutación de Actualización (Pública / Wizard) ---
 class UpdateDistributorRequestDraftMutation(graphene.Mutation):
-    """
-    (NUEVA) Permite ir guardando los datos paso a paso (Personal, Negocio, Finanzas).
-    Esencial para el funcionamiento del Wizard.
-    """
     class Arguments:
         request_id = graphene.ID(required=True)
         nombres = graphene.String()
@@ -139,9 +127,10 @@ class UpdateDistributorRequestDraftMutation(graphene.Mutation):
 
     def mutate(self, info, request_id, **kwargs):
         try:
-            _, real_id = relay.Node.from_global_id(request_id)
+            # --- CORRECCIÓN 2: Usar from_global_id directo ---
+            _, real_id = from_global_id(request_id)
             req = DistributorRequest.objects.get(pk=real_id)
-        except DistributorRequest.DoesNotExist:
+        except (DistributorRequest.DoesNotExist, ValueError):
             raise GraphQLError("La solicitud no existe.")
 
         check_request_editable(req)
@@ -166,14 +155,15 @@ class UploadRequestDocumentMutation(graphene.Mutation):
 
     def mutate(self, info, request_id, document_type, file, **kwargs):
         try:
-            _, real_id = relay.Node.from_global_id(request_id)
+            # --- CORRECCIÓN 2 ---
+            _, real_id = from_global_id(request_id)
             req = DistributorRequest.objects.get(pk=real_id)
-        except DistributorRequest.DoesNotExist:
+        except (DistributorRequest.DoesNotExist, ValueError):
             raise GraphQLError("La solicitud no existe.")
             
         check_request_editable(req)
 
-        if file.size > 5242880: # 5MB
+        if file.size > 5242880: 
              raise GraphQLError("El archivo es demasiado grande. Límite de 5MB.")
 
         doc = RequestDocument.objects.create(
@@ -198,9 +188,10 @@ class CreateRequestBranchMutation(graphene.Mutation):
 
     def mutate(self, info, request_id, **kwargs):
         try:
-            _, real_req_id = relay.Node.from_global_id(request_id)
+            # --- CORRECCIÓN 2 ---
+            _, real_req_id = from_global_id(request_id)
             req = DistributorRequest.objects.get(pk=real_req_id)
-        except DistributorRequest.DoesNotExist:
+        except (DistributorRequest.DoesNotExist, ValueError):
             raise GraphQLError("La solicitud no existe.")
 
         check_request_editable(req)
@@ -221,9 +212,10 @@ class CreateRequestReferenceMutation(graphene.Mutation):
 
     def mutate(self, info, request_id, **kwargs):
         try:
-            _, real_req_id = relay.Node.from_global_id(request_id)
+            # --- CORRECCIÓN 2 ---
+            _, real_req_id = from_global_id(request_id)
             req = DistributorRequest.objects.get(pk=real_req_id)
-        except DistributorRequest.DoesNotExist:
+        except (DistributorRequest.DoesNotExist, ValueError):
              raise GraphQLError("La solicitud no existe.")
 
         check_request_editable(req)
@@ -240,7 +232,8 @@ class DeleteRequestBranchMutation(graphene.Mutation):
     success = graphene.Boolean()
     
     def mutate(self, info, id):
-        _, real_id = relay.Node.from_global_id(id)
+        # --- CORRECCIÓN 2 ---
+        _, real_id = from_global_id(id)
         try:
             branch = RequestBranch.objects.get(pk=real_id)
             check_request_editable(branch.request)
@@ -256,7 +249,8 @@ class DeleteRequestReferenceMutation(graphene.Mutation):
     success = graphene.Boolean()
     
     def mutate(self, info, id):
-        _, real_id = relay.Node.from_global_id(id)
+        # --- CORRECCIÓN 2 ---
+        _, real_id = from_global_id(id)
         try:
             ref = RequestReference.objects.get(pk=real_id)
             check_request_editable(ref.request)
@@ -278,17 +272,16 @@ class AssignDistributorRequestMutation(graphene.Mutation):
     def mutate(self, info, request_id, user_id):
         check_permission(info.context.user, 'can_authorize_requests')
         try:
-            _, real_req_id = relay.Node.from_global_id(request_id)
+            # --- CORRECCIÓN 2 ---
+            _, real_req_id = from_global_id(request_id)
             req = DistributorRequest.objects.get(pk=real_req_id, estado=RequestState.PENDIENTE)
-            _, real_user_id = relay.Node.from_global_id(user_id)
+            _, real_user_id = from_global_id(user_id)
             colaborador = Usuario.objects.get(pk=real_user_id)
             
             if not colaborador.rol or not colaborador.rol.can_be_assigned:
                  raise GraphQLError("Este usuario no tiene permisos de Colaborador.")
-        except DistributorRequest.DoesNotExist:
-            raise GraphQLError("La solicitud no existe o ya fue asignada.")
-        except Usuario.DoesNotExist:
-            raise GraphQLError("El usuario colaborador no existe.")
+        except (DistributorRequest.DoesNotExist, Usuario.DoesNotExist, ValueError):
+            raise GraphQLError("Solicitud o Usuario no encontrados.")
 
         req.assigned_to = colaborador
         req.estado = RequestState.ASIGNADA
@@ -299,7 +292,7 @@ class AssignDistributorRequestMutation(graphene.Mutation):
             usuario=info.context.user,
             estado_anterior=RequestState.PENDIENTE,
             estado_nuevo=RequestState.ASIGNADA,
-            comentario=f"Asignada a {colaborador.email}."
+            comentario=f"Asignada a {colaborador.email} por {info.context.user.email}."
         )
         return AssignDistributorRequestMutation(request=req)
 
@@ -316,10 +309,14 @@ class AddRequestRevisionMutation(graphene.Mutation):
 
     def mutate(self, info, request_id, **kwargs):
         check_permission(info.context.user, 'can_review_requests')
-        _, real_req_id = relay.Node.from_global_id(request_id)
+        # --- CORRECCIÓN 2 ---
+        _, real_req_id = from_global_id(request_id)
         
         if not kwargs.get('es_aprobado') and not kwargs.get('observacion'):
             raise GraphQLError("La observación es obligatoria si el campo no está aprobado.")
+
+        if not DistributorRequest.objects.filter(pk=real_req_id).exists():
+             raise GraphQLError("La solicitud no existe.")
 
         revision = RequestRevision.objects.create(
             request_id=real_req_id,
@@ -341,9 +338,10 @@ class RequestCorrectionsMutation(graphene.Mutation):
     def mutate(self, info, request_id, comentario):
         check_permission(info.context.user, 'can_request_corrections')
         try:
-            _, real_req_id = relay.Node.from_global_id(request_id)
+            # --- CORRECCIÓN 2 ---
+            _, real_req_id = from_global_id(request_id)
             req = DistributorRequest.objects.get(pk=real_req_id)
-        except DistributorRequest.DoesNotExist:
+        except (DistributorRequest.DoesNotExist, ValueError):
             raise GraphQLError("La solicitud no existe.")
             
         estado_anterior = req.estado
@@ -370,10 +368,11 @@ class ResubmitRequestMutation(graphene.Mutation):
     @transaction.atomic
     def mutate(self, info, request_id):
         try:
-            _, real_req_id = relay.Node.from_global_id(request_id)
+            # --- CORRECCIÓN 2 ---
+            _, real_req_id = from_global_id(request_id)
             req = DistributorRequest.objects.get(pk=real_req_id, estado=RequestState.CORRECCIONES_SOLICITADAS)
-        except DistributorRequest.DoesNotExist:
-            raise GraphQLError("Solicitud no encontrada o estado incorrecto.")
+        except (DistributorRequest.DoesNotExist, ValueError):
+            raise GraphQLError("La solicitud no existe o no está esperando correcciones.")
             
         req.estado = RequestState.EN_REENVIO
         req.save()
@@ -400,10 +399,11 @@ class SubmitForAuthorizationMutation(graphene.Mutation):
     def mutate(self, info, request_id, comentario=""):
         check_permission(info.context.user, 'can_review_requests')
         try:
-            _, real_req_id = relay.Node.from_global_id(request_id)
+            # --- CORRECCIÓN 2 ---
+            _, real_req_id = from_global_id(request_id)
             req = DistributorRequest.objects.get(pk=real_req_id)
-        except DistributorRequest.DoesNotExist:
-            raise GraphQLError("Solicitud no existe.")
+        except (DistributorRequest.DoesNotExist, ValueError):
+            raise GraphQLError("La solicitud no existe.")
             
         if req.revisions.filter(es_aprobado=False).exists():
             raise GraphQLError("Existen revisiones pendientes.")
@@ -433,9 +433,10 @@ class ApproveDistributorRequestMutation(graphene.Mutation):
     def mutate(self, info, request_id):
         check_permission(info.context.user, 'can_authorize_requests')
         try:
-            _, real_req_id = relay.Node.from_global_id(request_id)
+            # --- CORRECCIÓN 2 ---
+            _, real_req_id = from_global_id(request_id)
             req = DistributorRequest.objects.get(pk=real_req_id, estado=RequestState.ENVIADO_AUTORIZACION)
-        except DistributorRequest.DoesNotExist:
+        except (DistributorRequest.DoesNotExist, ValueError):
             raise GraphQLError("Solicitud no lista para aprobar.")
             
         # 1. Crear Maestro
@@ -463,7 +464,7 @@ class ApproveDistributorRequestMutation(graphene.Mutation):
             banco=req.banco,
         )
 
-        # 2. Migrar Datos
+        # 2. Migrar Documentos 
         for doc in req.documents.filter(revision_status='approved'):
             DistributorDocument.objects.create(
                 distributor=new_distributor,
@@ -522,9 +523,10 @@ class RejectDistributorRequestMutation(graphene.Mutation):
     def mutate(self, info, request_id, comentario):
         check_permission(info.context.user, 'can_authorize_requests')
         try:
-            _, real_req_id = relay.Node.from_global_id(request_id)
+            # --- CORRECCIÓN 2 ---
+            _, real_req_id = from_global_id(request_id)
             req = DistributorRequest.objects.get(pk=real_req_id)
-        except DistributorRequest.DoesNotExist:
+        except (DistributorRequest.DoesNotExist, ValueError):
             raise GraphQLError("Solicitud no existe.")
 
         req.estado = RequestState.RECHAZADO
@@ -543,7 +545,7 @@ class RejectDistributorRequestMutation(graphene.Mutation):
 # --- Agrupador ---
 class DistributorRequestMutations(graphene.ObjectType):
     create_distributor_request = CreateDistributorRequestMutation.Field()
-    update_distributor_request_draft = UpdateDistributorRequestDraftMutation.Field() # <--- AÑADIDO
+    update_distributor_request_draft = UpdateDistributorRequestDraftMutation.Field()
     upload_request_document = UploadRequestDocumentMutation.Field()
     create_request_branch = CreateRequestBranchMutation.Field()
     create_request_reference = CreateRequestReferenceMutation.Field()

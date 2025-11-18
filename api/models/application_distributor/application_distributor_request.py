@@ -116,6 +116,11 @@ class DistributorRequest(BaseModel):
         help_text="Registro de discrepancias (campo, valor_manual, valor_ocr)."
     )
 
+    ocr_match_score = models.IntegerField(
+            default=0,
+            help_text="Puntaje de coincidencia (0-100) calculado entre datos OCR y manuales."
+    )
+
     def __str__(self):
         return f"Solicitud {self.nit} ({self.get_estado_display()})"
 
