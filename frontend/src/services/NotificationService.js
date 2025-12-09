@@ -25,13 +25,28 @@ export const handleError = (error) => {
   console.log("TCL: handleError -> error", error)
   let errorMessage = 'Ocurrió un error inesperado.';
 
-  // Verifica si el error viene de GraphQL (a través del interceptor de Axios)
-  if (error.response?.data?.errors) {
-    // Concatena todos los mensajes de error de GraphQL para mayor claridad.
-    errorMessage = error.response.data.errors.map(e => e.message).join('\\n');
-  } else if (error.message) {
-    // Si es un error genérico (ej. de red), muestra su mensaje.
+  // CASO 1: El error es simplemente un string (llamada manual)
+  if (typeof error === 'string') {
+    errorMessage = error;
+  }
+  // CASO 2: Error de respuesta GraphQL (dentro de un objeto de error de Axios o similar)
+  else if (error?.response?.data?.errors && Array.isArray(error.response.data.errors)) {
+    // Mapeamos los errores y usamos HTML para mostrarlos en lista si son varios
+    const errorList = error.response.data.errors.map(e => `<li>${e.message}</li>`).join('');
+    errorMessage = `<ul>${errorList}</ul>`;
+  }
+  // CASO 3: Errores generales de GraphQL (a veces vienen en graphQLErrors dependiendo del cliente)
+  else if (error?.graphQLErrors && Array.isArray(error.graphQLErrors)) {
+    const errorList = error.graphQLErrors.map(e => `<li>${e.message}</li>`).join('');
+    errorMessage = `<ul>${errorList}</ul>`;
+  }
+  // CASO 4: Error estándar de JavaScript o Axios (Network Error)
+  else if (error?.message) {
     errorMessage = error.message;
+  }
+  // CASO 5: Fallback para objetos desconocidos
+  else if (error) {
+    errorMessage = String(error);
   }
 
   MySwal.fire({

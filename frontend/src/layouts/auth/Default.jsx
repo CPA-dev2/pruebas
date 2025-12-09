@@ -72,7 +72,7 @@ const AuthIllustration = (props) => {
             align="end"
             w="100%"
             h="100%"
-            bgSize="cover"
+            bgSize="centered"
             bgPosition="50%"
             position="absolute"
             borderBottomLeftRadius={{ lg: "120px", xl: "200px" }}

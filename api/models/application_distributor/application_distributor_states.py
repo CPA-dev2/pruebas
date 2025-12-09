@@ -16,3 +16,4 @@ class RequestState(models.TextChoices):
     APROBADO = 'aprobado', 'Aprobado'
     RECHAZADO = 'rechazado', 'Rechazado'
     CANCELADO = 'cancelado', 'Cancelado'
+    DRADF= 'draft', 'Borrador'
