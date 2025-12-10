@@ -1,102 +1,44 @@
-# Full-Stack Project Template: Django & React
+# 📷 OCR Microservice - Extracción Inteligente de Documentos
 
-This is a comprehensive project template for building modern, secure, and scalable full-stack web applications. It uses Django with GraphQL for the backend and React for the frontend.
+Microservicio de alto rendimiento diseñado para la extracción, validación y análisis de calidad de documentos oficiales de Guatemala (DPI, RTU, Patentes).
 
-## Features
+Construido con **FastAPI**, **Celery**, **Redis** y **Tesseract OCR**, utilizando técnicas de visión por computadora (**OpenCV**) para pre-procesamiento avanzado de imágenes.
 
--   **Django Backend:** A robust and scalable backend built with the Django framework.
--   **GraphQL API:** A modern and flexible API built with `graphene-django`.
--   **React Frontend:** A fast and responsive frontend built with React and Vite.
--   **JWT Authentication:** Secure authentication using JSON Web Tokens.
--   **Role-Based Permissions:** A granular permission system to control access to different parts of the application.
--   **Automatic Token Refresh:** The frontend automatically handles token refreshes, providing a seamless user experience.
--   **Standardized Error Handling:** Consistent and detailed error messages from the backend.
--   **Code Quality:** The code follows best practices and is compliant with PEP 8 (backend) and standard JavaScript style guides (frontend).
+---
 
-## Prerequisites
+## 🚀 Características Principales
 
--   Python 3.10+
--   Node.js 18+ & npm
--   PostgreSQL
--   tesseract-ocr
--   tesseract-ocr-spa
--   poppler-utils
+* **Extracción de Texto:** Soporte para imágenes (JPG, PNG) y PDFs nativos o escaneados.
+* **Pre-procesamiento Avanzado:** Limpieza de ruido, binarización adaptativa y corrección de perspectiva mediante OpenCV.
+* **Validación de Documento Oficial:** Algoritmo que verifica palabras clave para asegurar que el archivo subido corresponde al tipo declarado (DPI, RTU, etc.).
+* **Score de Legibilidad:** Cálculo de un puntaje (0-100) basado en la confianza del motor OCR para determinar la calidad de la imagen.
+* **Procesamiento Asíncrono:** Arquitectura no bloqueante utilizando Celery.
 
-## Installation
+---
 
-### Backend
+## 🛠️ Stack Tecnológico
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <repository_url>
-    cd <repository_name>
-    ```
+* **Python 3.10+**
+* **FastAPI:** Framework web moderno y rápido.
+* **Celery:** Cola de tareas distribuidas.
+* **Redis:** Broker de mensajería y backend de resultados.
+* **Tesseract 5:** Motor de OCR (Optical Character Recognition).
+* **OpenCV:** Visión por computadora para limpieza de imágenes.
 
-2.  **Create and activate a virtual environment:**
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
-    ```
+---
 
-3.  **Install the dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+## 📋 Prerrequisitos del Sistema
 
-4.  **Set up the environment variables:**
-    ```bash
-    cp .env.example .env
-    ```
-    *Edit the `.env` file with your database credentials and a secret key.*
+Antes de instalar las dependencias de Python, es **obligatorio** instalar las librerías del sistema operativo para que Tesseract y OpenCV funcionen.
 
-5.  **Run the database migrations:**
-    ```bash
-    python manage.py migrate
-    ```
-
-### Frontend
-
-1.  **Navigate to the frontend directory:**
-    ```bash
-    cd frontend
-    ```
-
-2.  **Install the dependencies:**
-    ```bash
-    npm install
-    ```
-
-## Running the Application
-
-### Backend
+### Ubuntu / Debian
 
 ```bash
-python manage.py runserver
-```
-*The backend will be available at `http://localhost:8000`.*
-
-### Frontend
-
-```bash
-cd frontend
-npm run dev
-```
-*The frontend will be available at `http://localhost:5173`.*
-
-## Documentation
-
-For a more detailed explanation of the project's architecture, components, and functionalities, please see the [**Project Documentation**](DOCUMENTATION.md).
-
-## Contributing
-
-We welcome contributions to this project. Please follow these steps:
-
-1.  Fork the repository.
-2.  Create a new branch for your feature or bug fix.
-3.  Make your changes and commit them with a descriptive message.
-4.  Push your changes to your fork.
-5.  Create a pull request to the main repository.
-
-## Contact
-
-If you have any questions or suggestions, please feel free to open an issue on GitHub.
+sudo apt-get update
+sudo apt-get install -y \
+    tesseract-ocr \
+    tesseract-ocr-spa \
+    libtesseract-dev \
+    poppler-utils \
+    libgl1-mesa-glx \
+    redis-server
