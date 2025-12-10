@@ -1,21 +1,19 @@
 import strawberry
 from strawberry.file_uploads import Upload
 from typing import Optional, Any
-import json
-import shutil
 import uuid
 import os
+import aiofiles
 from celery.result import AsyncResult
 from app.core.config import settings
+from app.core.security import FileValidator
 from worker.tasks import process_document_ton
 
-# Definimos un escalar JSON para la respuesta TON flexible
 @strawberry.scalar
 class JSON:
     @staticmethod
     def serialize(value: Any) -> Any:
         return value
-
     @staticmethod
     def parse_value(value: Any) -> Any:
         return value
@@ -38,48 +36,80 @@ class Query:
     def get_ocr_result(self, task_id: str) -> Optional[OCRResult]:
         """Consulta el resultado de Celery por ID."""
         res = AsyncResult(task_id)
+        
+        # 1. Si la tarea ya terminó (Ready)
         if res.ready():
-            result_data = res.result
-            if not result_data: return None
+            # Verificar si Celery falló a nivel infraestructura
+            if res.status == 'FAILURE':
+                return OCRResult(
+                    status="FAILED", 
+                    meta={"message": "Error crítico en worker"}, 
+                    data={}
+                )
             
+            result_data = res.result
+            
+            # Si el resultado es nulo (caso raro)
+            if not result_data:
+                return OCRResult(status="FAILED", meta={}, data={})
+            
+            # Retornamos el estado calculado por el worker (SUCCESS, INCORRECT, FAILED)
             return OCRResult(
-                status=result_data.get("status", "unknown"),
+                status=result_data.get("status", "FAILED"),
                 meta=result_data.get("meta", {}),
                 data=result_data.get("data", {})
             )
-        return OCRResult(status="processing", meta={}, data={})
+        
+        # 2. Si la tarea sigue ejecutándose -> PROCESSING
+        return OCRResult(
+            status="PROCESSING", 
+            meta={"message": "Analizando documento..."}, 
+            data={}
+        )
 
 @strawberry.type
 class Mutation:
     @strawberry.mutation
     async def scan_document(self, file: Upload, doc_type: str) -> OCRTaskResponse:
-        """
-        Sube archivo, guarda en temporal y dispara Celery.
-        Retorna el Task ID para hacer polling.
-        """
-        # Validar tipo
+        """Sube archivo y dispara Celery."""
+        # Validación básica de tipo solicitado
         valid_types = ['DPI_FRONT', 'DPI_BACK', 'RTU', 'PATENTE']
         if doc_type not in valid_types:
-            return OCRTaskResponse(task_id="", status="error", message="Tipo de documento inválido")
+            return OCRTaskResponse(task_id="", status="FAILED", message="Tipo de documento inválido")
 
-        # Guardar archivo temporalmente
-        file_ext = file.filename.split('.')[-1]
-        temp_name = f"{uuid.uuid4()}.{file_ext}"
+        # Guardado temporal seguro
+        safe_ext = "bin"
+        if file.filename:
+            ext = file.filename.split('.')[-1].lower()
+            if ext in ['pdf', 'jpg', 'jpeg', 'png']:
+                safe_ext = ext
+        
+        temp_name = f"{uuid.uuid4()}.{safe_ext}"
         file_path = os.path.join(settings.TEMP_DIR, temp_name)
         
         try:
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-        except Exception as e:
-            return OCRTaskResponse(task_id="", status="error", message=f"Error guardando archivo: {str(e)}")
+            content = await file.read()
+            async with aiofiles.open(file_path, 'wb') as out_file:
+                await out_file.write(content)
+            
+            # Validación de Magic Bytes (Seguridad)
+            is_safe, msg = FileValidator.validate_file_header(file_path)
+            if not is_safe:
+                os.remove(file_path)
+                return OCRTaskResponse(task_id="", status="FAILED", message=f"Archivo inseguro: {msg}")
 
-        # Encolar tarea
-        task = process_document_ton.delay(file_path, doc_type)
-        
-        return OCRTaskResponse(
-            task_id=task.id,
-            status="queued",
-            message="Documento encolado para análisis TON."
-        )
+            # Encolar tarea
+            task = process_document_ton.delay(file_path, doc_type)
+            
+            return OCRTaskResponse(
+                task_id=task.id,
+                status="PROCESSING", # Estado inicial
+                message="Documento encolado."
+            )
+
+        except Exception as e:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            return OCRTaskResponse(task_id="", status="FAILED", message=str(e))
 
 schema = strawberry.Schema(query=Query, mutation=Mutation)

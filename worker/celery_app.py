@@ -18,4 +18,7 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,  # Un task a la vez por worker para no saturar RAM con OCR
     task_acks_late=True,
     broker_connection_retry_on_startup=True,
+    task_default_queue="avanza_ocr_queue",
+    task_default_exchange="avanza_ocr_exchange",
+    task_default_routing_key="avanza_ocr_key",
 )

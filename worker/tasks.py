@@ -6,35 +6,55 @@ from app.services.validators import DocumentValidator
 @celery_app.task(name="tasks.process_document_ton")
 def process_document_ton(file_path: str, doc_type: str):
     """
-    Procesa el documento y retorna la estructura TON.
+    Procesa el documento y retorna la estructura TON con estados detallados:
+    - SUCCESS: Procesado y válido.
+    - INCORRECT: Procesado pero inválido (score bajo o datos ilegibles).
+    - FAILED: Error técnico.
     """
+    # Instanciamos el motor (si aplicaste el refactor anterior) o usamos estáticos
+    ocr = OCREngine() if hasattr(OCREngine, 'extract_text') is False else OCREngine
+    
     try:
-        # 1. Extracción de Texto Crudo
-        raw_text = OCREngine.extract_text(file_path)
+        # 1. Extracción
+        raw_text = ocr.extract_text(file_path)
         
-        # 2. Validación de Seguridad y Tipo
+        # 2. Validación
         validation = DocumentValidator.validate(raw_text, doc_type)
+        is_valid = validation.get("is_valid", False)
         
-        # 3. Generación de TON
-        ton_data = OCREngine.generate_ton(raw_text, doc_type)
+        # 3. Generación TON
+        ton_data = ocr.generate_ton(raw_text, doc_type)
         
-        # Resultado final
-        result = {
-            "status": "completed",
+        # 4. Determinación de Estado de Negocio
+        # Si es válido -> SUCCESS, si no -> INCORRECT
+        status = "SUCCESS" if is_valid else "INCORRECT"
+        
+        return {
+            "status": status,
             "meta": {
-                "is_valid": validation["is_valid"],
-                "score": validation["score"],
-                "message": validation["msg"]
+                "isValid": is_valid,
+                "score": validation.get("score", 0),
+                "message": validation.get("msg", "Procesado")
             },
-            "data": ton_data  # Aquí va el objeto TON
+            "data": ton_data
         }
-        
-        return result
 
     except Exception as e:
-        return {"status": "failed", "error": str(e)}
+        # Estado de Fallo Técnico
+        return {
+            "status": "FAILED",
+            "meta": {
+                "isValid": False,
+                "score": 0,
+                "message": f"Error interno: {str(e)}"
+            },
+            "data": {}
+        }
     
     finally:
-        # 4. Limpieza: Eliminar archivo temporal siempre
+        # Limpieza siempre
         if os.path.exists(file_path):
-            os.remove(file_path)
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
