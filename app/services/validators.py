@@ -8,10 +8,19 @@ class DocumentValidator:
     
     # Palabras clave obligatorias por tipo
     KEYWORDS = {
-        'DPI_FRONT': ['REPUBLICA', 'GUATEMALA', 'CODIGO', 'UNICO', 'CUI'],
-        'DPI_BACK': ['REGISTRADOR', 'CIVIL', 'VECINDAD', 'NACIONAL', 'PERSONAS'],
-        'RTU': ['SAT', 'SUPERINTENDENCIA', 'TRIBUTARIA', 'NIT'],
-        'PATENTE': ['MERCANTIL', 'PATENTE', 'COMERCIO', 'REPUBLICA']
+        'DPI_FRONT': [
+            'REPUBLICA', 'GUATEMALA', 'PERSONAL', 'IDENTIFICACION', 'CUI', 'NACIONALIDAD'
+        ],
+        # Ajustado para DPI Posterior (Imagen real)
+        'DPI_BACK': [
+            'LUGAR', 'NACIMIENTO', 'VECINDAD', 'ESTADO', 'CIVIL', 'RENAP', 'IDGTM' 
+        ],
+        'RTU': [
+            'SAT', 'SUPERINTENDENCIA', 'TRIBUTARIA', 'NIT', 'CONSTANCIA', 'INSCRIPCION'
+        ],
+        'PATENTE': [
+            'MERCANTIL', 'PATENTE', 'COMERCIO', 'REPUBLICA', 'REGISTRO'
+        ]
     }
 
     @staticmethod
@@ -25,26 +34,45 @@ class DocumentValidator:
         text_upper = text.upper()
         keywords = DocumentValidator.KEYWORDS[doc_type]
         matches = 0
+        found_words = [] # Para debugging
 
         for kw in keywords:
-            # Búsqueda exacta
+            # 1. Búsqueda exacta
             if kw in text_upper:
                 matches += 1
+                found_words.append(kw)
             else:
-                # Búsqueda difusa (Fuzzy) para tolerar errores de OCR
+                # 2. Búsqueda difusa (Fuzzy) tolerante a errores OCR (ej. REFPUBLICA)
+                # Buscamos tokens individuales en el texto
+                best_ratio = 0
                 for word in text_upper.split():
-                    if fuzz.ratio(kw, word) > 85:
+                    # Optimización: Solo comparar palabras de longitud similar
+                    if abs(len(word) - len(kw)) > 2:
+                        continue
+                        
+                    ratio = fuzz.ratio(kw, word)
+                    if ratio > 80: # Tolerancia del 20%
                         matches += 1
+                        found_words.append(kw)
                         break
         
-        # Calcular score (porcentaje de palabras encontradas)
-        score = int((matches / len(keywords)) * 100)
+        # Calcular score
+        total_kws = len(keywords)
+        score = int((matches / total_kws) * 100)
         
-        # Umbral mínimo de 60% para considerar válido
-        is_valid = score >= 60
+        # Reglas especiales
+        is_valid = score >= 50 # Bajamos a 50% porque el OCR de IDs viejos es difícil
+        
+        # Validación crítica para DPI Back: Debe tener MRZ (IDGTM) o RENAP
+        if doc_type == 'DPI_BACK':
+            if 'IDGTM' in text_upper or 'RENAP' in found_words:
+                is_valid = True
+                score = max(score, 80) # Boost de confianza si encontramos marcas críticas
+
+        msg = f"Validado ({', '.join(found_words)})" if is_valid else "Documento ilegible o incorrecto"
         
         return {
             "is_valid": is_valid,
             "score": score,
-            "msg": "Documento Oficial Validado" if is_valid else "Documento no reconocido o ilegible"
+            "msg": msg
         }
