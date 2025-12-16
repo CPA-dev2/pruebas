@@ -1,316 +1,402 @@
 import os
 import cv2
-import numpy as np
 import re
 import logging
 from paddleocr import PaddleOCR
-from pdf2image import convert_from_path
 from rapidfuzz import fuzz
+from app.services.image_processing import ImagePreprocessor
+from app.services.pdf_parser import PDFParser
 
+# Reducir ruido de logs
 logging.getLogger("ppocr").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 class OCREngine:
-    def __init__(self, debug=False):
-        # show_log=False mantiene la consola limpia
-        self.ocr = PaddleOCR(use_angle_cls=True, lang='es', show_log=False)
-        self.debug = debug
-
-        # Etiquetas que actúan como "Muros" o barreras
+    def __init__(self):
+        # Modelo ligero, detecta ángulos
+        self.ocr = PaddleOCR(
+            use_angle_cls=True, 
+            lang='es',
+            rec_model_dir='./training/output/final_dpi_model', 
+            show_log=False
+        )
+        
+        # Etiquetas de parada globales (DPI + RTU Stop Words)
         self.STOP_LABELS = [
             'NOMBRE', 'NOMBRES', 'APELLIDO', 'APELLIDOS',
             'NACIONALIDAD', 'SEXO', 'GENERO', 'FECHA', 'NACIMIENTO',
             'LUGAR', 'VECINDAD', 'ESTADO', 'CIVIL', 'CUI', 'REGISTRO',
-            'PAIS', 'DE', 'NAC', 'GTM', 'PAISDENAC', 'PAIS DE NAC', 
-            'FOLIO', 'LIBRO', 'EXPEDIENTE', 'TITULAR', 'EMPRESA', 'NIT'
+            'PAIS', 'DE', 'NAC', 'GTM', 'IDGTM', 'RENAP', 'SERIE', 'NUMERO',
+            'L:', 'F:', 'P:', 'LIBRO', 'FOLIO',
+            # Nuevas Stop Labels para RTU
+            'IDENTIFICACION', 'UBICACION', 'ACTIVIDAD', 'ESTABLECIMIENTOS', 
+            'AFILIACIONES', 'VEHICULOS', 'CONTADOR', 'REPRESENTANTE'
         ]
 
-        # Configuración espacial
-        self.FUZZY_LABEL_THRESH = 88
-        self.MAX_VERTICAL_DIST = 250  # Distancia máxima de búsqueda si no hay barrera
+    def process_document(self, file_path: str, doc_type: str) -> dict:
+        print(f"Procesando {doc_type}...")
+        if not os.path.exists(file_path):
+            return {'status': 'ERROR', 'data': {}, 'meta': {'message': 'Archivo no encontrado'}}
 
-    def generate_ton(self, text_ignored, doc_type: str, file_path: str = None) -> dict:
-        if not file_path or not os.path.exists(file_path):
-            return {}
+        # 1. ESTRATEGIA PARA PDF NATIVO (RTU / PATENTE)
+        if file_path.lower().endswith('.pdf'):
+            text_content = PDFParser.extract_text_content(file_path)
+            # Si tiene suficiente texto, procesamos como PDF nativo
+            if len(text_content) > 100: 
+                data = {}
+                if doc_type == 'RTU':
+                    data = PDFParser.parse_rtu(text_content)
+                elif doc_type == 'PATENTE':
+                    data = PDFParser.parse_patente(text_content)
+                
+                if data:
+                    return {
+                        'status': 'SUCCESS', 
+                        'data': data, 
+                        'meta': {'isValid': True, 'score': 100, 'method': 'NATIVE_PDF'}
+                    }
 
-        ext = os.path.splitext(file_path)[1].lower()
-        target_image = file_path
-        temp_img_created = False
+        # 2. ESTRATEGIA PARA IMÁGENES
+        processed_path, perspective_fixed = ImagePreprocessor.enhance_document(file_path)
         
-        # Conversión PDF
-        if ext == '.pdf':
-            try:
-                images = convert_from_path(file_path)
-                if images:
-                    target_image = file_path + "_temp.jpg"
-                    images[0].save(target_image, 'JPEG')
-                    temp_img_created = True
-            except Exception as e:
-                logger.error(f"Error PDF: {e}")
-                return {}
-
         try:
-            # 1. Preprocesamiento ligero
-            preprocessed = self._preprocess_image_for_ocr(target_image)
-            
-            # 2. Inferencia OCR
-            result = self.ocr.ocr(preprocessed, cls=True)
+            result = self.ocr.ocr(processed_path, cls=True)
             if not result or not result[0]:
-                return {}
+                return {'status': 'FAILED', 'data': {}, 'meta': {'message': 'No se detectó texto'}}
 
-            # 3. Normalizar Elementos
             elements = self._normalize_ocr_result(result[0])
-
-            # Zona de exclusión (Encabezado)
-            # Ignoramos el 12% superior para evitar leer títulos como campos
-            max_y = max([el['y_max'] for el in elements]) if elements else 0
-            header_limit = max_y * 0.12
-            valid_elements = [el for el in elements if el['y_min'] > header_limit]
-            
-            # Fallback si recortamos demasiado
-            if len(valid_elements) < 5: valid_elements = elements
-
+            full_text = " ".join([e['text'] for e in elements])
             data = {}
+
+            # --- LÓGICA ESPECÍFICA ---
             
-            # --- LÓGICA DPI FRONTAL ---
             if doc_type == 'DPI_FRONT':
-                # CUI
-                data['CUI'] = self._find_cui(elements) # Usamos todos los elementos para el CUI
+                data = self._parse_dpi_front(elements, full_text)
 
-                # ESTRATEGIA DE BARRERAS
-                # 1. NOMBRE: Busca desde "NOMBRE" hasta "APELLIDO"
-                data['NOMBRE'] = self._extract_block_spatial(
-                    valid_elements, 
-                    start_label=['NOMBRE', 'NOMBRES'], 
-                    stop_labels=['APELLIDO', 'APELLIDOS']
-                )
-
-                # 2. APELLIDO: Busca desde "APELLIDO" hasta "NACIONALIDAD" o "PAIS"
-                data['APELLIDO'] = self._extract_block_spatial(
-                    valid_elements, 
-                    start_label=['APELLIDO', 'APELLIDOS'], 
-                    stop_labels=['NACIONALIDAD', 'SEXO', 'GENERO', 'PAIS', 'GTM']
-                )
-
-                # 3. FECHA NACIMIENTO
-                data['FECHA_NAC'] = self._extract_block_spatial(
-                    valid_elements,
-                    start_label=['NACIMIENTO', 'FECHA'],
-                    stop_labels=['LUGAR', 'VECINDAD']
-                )
-                # Fallback Fecha por patrón regex (16SEP1998)
-                if not data.get('FECHA_NAC'):
-                    full_text = " ".join([e['text'] for e in valid_elements])
-                    m = re.search(r'(\d{1,2}\s*[A-Z]{3}\s*\d{4})', full_text)
-                    if m: data['FECHA_NAC'] = m.group(1)
-
-                # 4. GENERO
-                data['GENERO'] = self._extract_block_spatial(valid_elements, ['SEXO', 'GENERO'], ['FECHA'])
-                if not data.get('GENERO'):
-                    # Búsqueda directa
-                    if any('MASCULINO' in e['text'] for e in valid_elements): data['GENERO'] = 'MASCULINO'
-                    elif any('FEMENINO' in e['text'] for e in valid_elements): data['GENERO'] = 'FEMENINO'
-
-                # 5. NACIONALIDAD
-                data['NACIONALIDAD'] = self._extract_block_spatial(valid_elements, ['NACIONALIDAD'], ['SEXO', 'PAIS'])
-                if not data.get('NACIONALIDAD') and any('GTM' in e['text'] for e in valid_elements):
-                    data['NACIONALIDAD'] = 'GTM'
-                
-                # 6. PAIS NACIMIENTO
-                data['PAIS_NAC'] = self._extract_block_spatial(valid_elements, ['PAIS', 'NAC'], ['GTM', 'FOTO'])
-                if data.get('PAIS_NAC') and ("GTM" in data['PAIS_NAC'] or "GUATE" in data['PAIS_NAC']):
-                     data['PAIS_NAC'] = "GTM"
-
-                # Limpieza final de nombres (quitar basura si quedó)
-                for field in ['NOMBRE', 'APELLIDO']:
-                    if data.get(field):
-                        # Quitar dos puntos, puntos iniciales y espacios dobles
-                        data[field] = re.sub(r'^[\.\:\-]+\s*', '', data[field]).strip()
-
-            # --- OTROS DOCUMENTOS ---
             elif doc_type == 'DPI_BACK':
-                # MRZ
-                full_str = "".join([e['text'] for e in elements])
-                m = re.search(r'(IDGTM\w+)', full_str.replace(" ", ""))
-                data['MRZ_RAW'] = m.group(1) if m else None
+                # 1. Lectura Visual (Prioridad para textos)
+                spatial_data = self._parse_dpi_back_spatial(elements)
                 
-                data['VECINDAD'] = self._extract_block_spatial(valid_elements, ['VECINDAD'], ['ESTADO', 'CIVIL'])
-                data['ESTADO_CIVIL'] = self._extract_block_spatial(valid_elements, ['CIVIL', 'ESTADO'], ['FECHA'])
+                # 2. Lectura MRZ (Prioridad para validación)
+                mrz_data = self._parse_dpi_back_mrz(full_text)
+                
+                # 3. Fusión
+                data = {**spatial_data, **mrz_data}
+                
+                # 4. Fallback Cruzado
+                if not data.get('FECHA_VENCIMIENTO') and data.get('FECHA_VENCIMIENTO_MRZ'):
+                    data['FECHA_VENCIMIENTO'] = data['FECHA_VENCIMIENTO_MRZ']
 
             elif doc_type == 'RTU':
-                data['NIT'] = self._find_value_right_or_below(valid_elements, ['NIT'])
-                if data.get('NIT'): data['NIT'] = re.sub(r'[^0-9A-Z\-]', '', data['NIT'])
-                
-                data['NOMBRE_FISCAL'] = self._extract_block_spatial(
-                    valid_elements, 
-                    start_label=['NOMBRE', 'RAZON', 'SOCIAL'], 
-                    stop_labels=['COMERCIAL', 'ESTABLECIMIENTO', 'NIT']
-                )
-
-            elif doc_type == 'PATENTE':
-                data['REGISTRO'] = self._extract_block_spatial(valid_elements, ['REGISTRO'], ['FOLIO'])
-                data['EMPRESA'] = self._extract_block_spatial(valid_elements, ['EMPRESA', 'MERCANTIL'], ['NUMERO'])
-                data['PROPIETARIO'] = self._extract_block_spatial(valid_elements, ['PROPIETARIO'], ['DIRECCION'])
-
-            # Construir respuesta final
-            is_valid = bool(data.get('CUI') or data.get('MRZ_RAW') or data.get('NIT') or data.get('REGISTRO'))
+                # Nueva lógica avanzada para RTU en imagen
+                data = self._parse_rtu_image(elements, full_text)
             
+            # Validación Final
+            is_valid_mrz = data.get('MRZ_VALID', False)
+            found_fields = len([v for k, v in data.items() if v and 'MRZ' not in k])
+            
+            # Calcular Score
+            score = min(100, found_fields * 25)
+            if is_valid_mrz:
+                score = max(score, 95) # MRZ garantiza autenticidad
+
             return {
-                'status': 'SUCCESS' if is_valid else 'FAIL',
+                'status': 'SUCCESS' if score > 80 else 'UNREADABLE',
+                'data': data,
                 'meta': {
-                    'isValid': is_valid,
-                    'score': 100 if is_valid else 0,
-                    'message': 'Documento Procesado' if is_valid else 'No legible'
-                },
-                'data': data
+                    'isValid': score > 80,
+                    'score': score,
+                    'method': 'AI_OCR_ENHANCED' if perspective_fixed else 'AI_OCR_STANDARD'
+                }
             }
 
         except Exception as e:
-            logger.error(f"Error Fatal: {e}")
-            return {'status': 'ERROR', 'meta': {'isValid': False, 'message': str(e)}, 'data': {}}
+            logger.error(f"Error OCR: {e}")
+            return {'status': 'ERROR', 'meta': {'message': str(e)}, 'data': {}}
         finally:
-            if temp_img_created and os.path.exists(target_image):
-                try: os.remove(target_image)
-                except: pass
+            if processed_path != file_path and os.path.exists(processed_path):
+                os.remove(processed_path)
 
-    # ------------------ MÉTODOS CORE DE IA ESPACIAL ------------------
+    # --- PARSERS ---
 
-    def _extract_block_spatial(self, elements, start_label, stop_labels):
-        """
-        Encuentra una etiqueta y captura TODO el texto hasta encontrar la siguiente etiqueta (barrera).
-        """
-        # Normalizar listas
-        start_labels = start_label if isinstance(start_label, list) else [start_label]
-        stop_labels = stop_labels if isinstance(stop_labels, list) else [stop_labels]
+    def _parse_dpi_front(self, elements, full_text):
+        data = {}
+        cui_match = re.search(r'(\d{4}\s?\d{5}\s?\d{4})', full_text.replace("CUI", ""))
+        if cui_match:
+            data['CUI'] = cui_match.group(1).replace(" ", "")
 
-        # 1. Encontrar la caja de inicio (Etiqueta)
-        label_box = None
-        best_ratio = 0
+        data['NOMBRE'] = self._extract_block_spatial(elements, ['NOMBRE', 'NOMBRES'], ['APELLIDO'])
+        data['APELLIDO'] = self._extract_block_spatial(elements, ['APELLIDO', 'APELLIDOS'], ['NACIONALIDAD', 'SEXO', 'GENERO'])
         
-        for el in elements:
-            for kw in start_labels:
-                ratio = fuzz.partial_ratio(kw, el['text'])
-                if ratio > 90:
-                    # Protección: Evitar falsos positivos en textos largos
-                    if len(el['text']) < len(kw) + 12:
-                        if ratio > best_ratio:
-                            best_ratio = ratio
-                            label_box = el
-        
-        if not label_box: return None
+        dob_match = re.search(r'(\d{1,2}\s?[A-Z]{3}\s?\d{4})', full_text)
+        if dob_match:
+            data['FECHA_NAC'] = dob_match.group(1)
 
-        # 2. Encontrar la Barrera Inferior (La etiqueta de parada más cercana)
-        barrier_y = label_box['y_max'] + self.MAX_VERTICAL_DIST # Límite por defecto
-        
-        # Coordenadas de referencia
-        l_x_min = label_box['x_min']
-        l_y_max = label_box['y_max']
+        if 'MASCULINO' in full_text: data['GENERO'] = 'MASCULINO'
+        elif 'FEMENINO' in full_text: data['GENERO'] = 'FEMENINO'
+        return data
 
-        for el in elements:
-            if el is label_box: continue
+    def _parse_dpi_back_mrz(self, text):
+        data = {}
+        clean_text = text.replace(" ", "").upper()
+        # Regex para MRZ de Guatemala (IDGTM)
+        matches = re.findall(r'(IDGTM[A-Z0-9<]+)', clean_text)
+        
+        if matches:
+            mrz_raw = "".join(matches)
+            data['MRZ_RAW'] = mrz_raw
+            data['MRZ_VALID'] = True
             
-            # Solo miramos cosas que están DEBAJO de nuestra etiqueta
-            if el['y_min'] > l_y_max:
-                # ¿Es esto una etiqueta de parada?
-                is_stop = False
-                for sl in stop_labels + self.STOP_LABELS:
-                    # Chequeo estricto para stop labels
-                    if fuzz.ratio(sl, el['text']) > 85 or \
-                       (len(el['text']) < 20 and fuzz.partial_ratio(sl, el['text']) > 90):
-                        is_stop = True
-                        break
-                
-                # Si es una etiqueta y está alineada (más o menos) o centrada, es una barrera
-                if is_stop:
-                    # Si está alineada horizontalmente (o es muy ancha), actualizamos la barrera
-                    if el['x_min'] < l_x_min + 300: 
-                        if el['y_min'] < barrier_y:
-                            barrier_y = el['y_min']
+            # Extraer Fecha Vencimiento del MRZ (Formato YYMMDD)
+            # Busca: 6 digitos nacimiento + digito check + sexo + 6 digitos vencimiento
+            dates_match = re.search(r'\d{6}\d[MF]<*(\d{6})', mrz_raw)
+            if dates_match:
+                venc_yymmdd = dates_match.group(1)
+                try:
+                    yy, mm, dd = venc_yymmdd[0:2], venc_yymmdd[2:4], venc_yymmdd[4:6]
+                    data['FECHA_VENCIMIENTO_MRZ'] = f"{dd}/{mm}/20{yy}"
+                except: pass
+        return data
 
-        # 3. Recolectar candidatos dentro de la zona segura (Start -> Barrera)
+    def _parse_dpi_back_spatial(self, elements):
+        data = {}
+        
+        # --- COLUMNA IZQUIERDA (Usamos width_tolerance=320 para no leer la derecha) ---
+        
+        # 1. LUGAR DE NACIMIENTO
+        # Para en "VECINDAD" o datos de libro "L:"
+        data['LUGAR_NACIMIENTO'] = self._extract_block_spatial(
+            elements, 
+            start_labels=['LUGAR', 'NACIMIENTO'], 
+            stop_labels=['VECINDAD', 'L:', 'LIBRO'],
+            width_tolerance=320 
+        )
+
+        # 2. VECINDAD
+        # Para en "NÚMERO DE SERIE" o pie de página. 
+        # width_tolerance evita que lea "SOLTERO" o "ESTADO CIVIL"
+        data['VECINDAD'] = self._extract_block_spatial(
+            elements, 
+            start_labels=['VECINDAD'], 
+            stop_labels=['NUMERO', 'SERIE', 'IDGTM'],
+            width_tolerance=320 
+        )
+
+        # --- COLUMNA DERECHA ---
+
+        # 3. ESTADO CIVIL
+        # Está a la derecha. Para en "FECHA DE VENCIMIENTO"
+        data['ESTADO_CIVIL'] = self._extract_block_spatial(
+            elements, 
+            start_labels=['ESTADO', 'CIVIL'], 
+            stop_labels=['FECHA', 'VENCIMIENTO'],
+            width_tolerance=320
+        )
+
+        # 4. FECHA DE VENCIMIENTO
+        # Para en el MRZ (IDGTM) o Numero de Serie
+        data['FECHA_VENCIMIENTO'] = self._extract_block_spatial(
+            elements, 
+            start_labels=['FECHA', 'VENCIMIENTO'], 
+            stop_labels=['IDGTM', 'NUMERO', 'SERIE'],
+            width_tolerance=320
+        )
+
+        # Limpieza de caracteres basura
+        for key in data:
+            if data[key]:
+                # Elimina puntos, dos puntos o guiones al inicio
+                data[key] = re.sub(r'^[\.\:\-\_]+\s*', '', data[key]).strip()
+
+        return data
+
+    # --- NUEVO PARSER PARA RTU (IMAGEN) ---
+
+    def _parse_rtu_image(self, elements, full_text):
+        """
+        Extrae datos del RTU analizando la estructura tabular (Clave -> Valor a la derecha).
+        """
+        data = {}
+        
+        # 1. NIT (Encabezado)
+        data['NIT'] = self._find_value_regex(full_text, r'NIT\s*:?\s*([0-9A-Z\-]+)')
+
+        # 2. SECCIÓN IDENTIFICACIÓN (Búsqueda Key-Value en tabla)
+        data['NOMBRE_PRIMERO'] = self._find_key_value(elements, "PRIMER NOMBRE")
+        data['NOMBRE_SEGUNDO'] = self._find_key_value(elements, "SEGUNDO NOMBRE")
+        data['APELLIDO_PRIMERO'] = self._find_key_value(elements, "PRIMER APELLIDO")
+        data['APELLIDO_SEGUNDO'] = self._find_key_value(elements, "SEGUNDO APELLIDO")
+        
+        # Construcción de nombre completo
+        nombres = f"{data.get('NOMBRE_PRIMERO', '')} {data.get('NOMBRE_SEGUNDO', '')}".strip()
+        apellidos = f"{data.get('APELLIDO_PRIMERO', '')} {data.get('APELLIDO_SEGUNDO', '')}".strip()
+        data['NOMBRE_COMPLETO'] = f"{nombres} {apellidos}".strip()
+
+        data['CUI'] = self._find_key_value(elements, "CODIGO UNICO DE IDENTIFICACION")
+        data['FECHA_NAC'] = self._find_key_value(elements, "FECHA DE NACIMIENTO")
+        data['ESTADO_CIVIL'] = self._find_key_value(elements, "ESTADO CIVIL")
+        data['NACIONALIDAD'] = self._find_key_value(elements, "NACIONALIDAD")
+        
+        # 3. SECCIÓN UBICACIÓN (Dirección Fiscal)
+        depto = self._find_key_value(elements, "DEPARTAMENTO")
+        muni = self._find_key_value(elements, "MUNICIPIO")
+        zona = self._find_key_value(elements, "ZONA")
+        vialidad = self._find_key_value(elements, "VIALIDAD") # Calle/Avenida
+        numero = self._find_key_value(elements, "NUMERO DE VIALIDAD")
+        colonia = self._find_key_value(elements, "COLONIA") or self._find_key_value(elements, "BARRIO")
+        
+        dir_parts = []
+        if numero and vialidad: dir_parts.append(f"{numero} {vialidad}")
+        elif vialidad: dir_parts.append(vialidad)
+        if zona: dir_parts.append(f"ZONA {zona}")
+        if colonia: dir_parts.append(colonia)
+        if muni: dir_parts.append(muni)
+        if depto: dir_parts.append(depto)
+        
+        data['DIRECCION_FISCAL'] = ", ".join(dir_parts)
+
+        # 4. ACTIVIDAD ECONÓMICA
+        # Buscar encabezado y leer el código debajo (formato XXXX.XX)
+        act_header = self._find_element(elements, "ACTIVIDAD ECONOMICA")
+        if act_header:
+            for el in elements:
+                # Buscar debajo del encabezado
+                if el['y_min'] > act_header['y_max']:
+                    # Patrón de código de actividad (ej: 9101.40)
+                    if re.match(r'^\d{4}\.\d{2}$', el['text']):
+                        data['ACTIVIDAD_CODIGO'] = el['text']
+                        # La descripción suele estar a la derecha del código
+                        data['ACTIVIDAD_DESC'] = self._find_value_right_of_box(elements, el)
+                        break
+
+        # 5. ESTABLECIMIENTOS (Nombre Comercial)
+        data['NOMBRE_COMERCIAL'] = self._find_key_value(elements, "NOMBRE COMERCIAL")
+        
+        return data
+
+    # --- MOTOR ESPACIAL ---
+
+    def _extract_block_spatial(self, elements, start_labels, stop_labels, width_tolerance=600):
+        """
+        Extrae texto en bloque vertical respetando columnas.
+        width_tolerance: Distancia máxima horizontal desde el inicio de la etiqueta.
+        """
+        start_y = -1
+        stop_y = 99999
+        start_x_min = 0
+        
+        # 1. Localizar etiqueta de inicio (Header)
+        for el in elements:
+            for lbl in start_labels:
+                if fuzz.ratio(lbl, el['text']) > 85:
+                    start_y = el['y_max']
+                    start_x_min = el['x_min']
+                    break
+            if start_y > 0: break
+            
+        if start_y == -1: return None
+
+        # 2. Localizar barrera inferior (Stop Label)
+        for el in elements:
+            # Solo buscar barreras debajo del inicio
+            if el['y_min'] > start_y:
+                for lbl in stop_labels + self.STOP_LABELS:
+                    if fuzz.ratio(lbl, el['text']) > 85:
+                        # Si encontramos una barrera, guardamos su Y
+                        if el['y_min'] < stop_y:
+                            stop_y = el['y_min']
+
+        # 3. Recolectar candidatos (Filtrado Espacial)
         candidates = []
         for el in elements:
-            if el is label_box: continue
-            
-            # Filtro Vertical: Entre la etiqueta y la barrera
-            # Permitimos -15px de tolerancia superior para capturar líneas muy pegadas
-            if el['y_min'] > (l_y_max - 15) and el['y_max'] < (barrier_y + 10):
+            # Filtro Vertical: Estar entre la etiqueta y la barrera
+            if start_y < el['y_min'] < stop_y:
                 
-                # Filtro Horizontal: Alineación izquierda con tolerancia a sangría
-                h_diff = el['x_min'] - l_x_min
-                # -40px (un poco a la izq) hasta +250px (sangría o nombre corto)
-                if -40 < h_diff < 250:
-                    # Filtro extra: Que no sea una stop label que se nos pasó
-                    if not any(fuzz.ratio(sl, el['text']) > 85 for sl in self.STOP_LABELS):
-                        candidates.append(el)
+                # Filtro Horizontal: Pertenecer a la misma columna
+                # Calculamos la distancia horizontal relativa a la etiqueta
+                h_dist = el['x_min'] - start_x_min
+                
+                # Reglas:
+                # > -100: Permite sangría ligera a la izquierda (ej. error de alineación)
+                # < width_tolerance: No irse a la columna de al lado
+                if -100 < h_dist < width_tolerance:
+                    candidates.append(el['text'])
+        
+        return " ".join(candidates) if candidates else None
 
-        # Ordenar y unir
+    # --- NUEVOS HELPERS PARA RTU ---
+
+    def _find_key_value(self, elements, key_label, max_dist=500):
+        """
+        Encuentra una etiqueta (ej: 'PRIMER NOMBRE') y devuelve el texto que está 
+        inmediatamente a su DERECHA en la misma línea.
+        """
+        key_box = None
+        for el in elements:
+            if fuzz.partial_ratio(key_label, el['text']) > 90:
+                key_box = el
+                break
+        
+        if not key_box: return None
+        
+        # Buscar elementos a la derecha y en la misma línea Y
+        y_mid = (key_box['y_min'] + key_box['y_max']) / 2
+        candidates = []
+        
+        for el in elements:
+            if el is key_box: continue
+            
+            # Chequeo Vertical: El centro de la etiqueta pasa por el elemento
+            if el['y_min'] < y_mid < el['y_max']:
+                # Chequeo Horizontal: Está a la derecha
+                if el['x_min'] > key_box['x_max']:
+                    dist = el['x_min'] - key_box['x_max']
+                    if dist < max_dist:
+                        candidates.append((dist, el['text']))
+        
         if candidates:
-            candidates.sort(key=lambda x: x['y_min'])
-            return " ".join([c['text'] for c in candidates])
-        
+            candidates.sort(key=lambda x: x[0])
+            return candidates[0][1]
         return None
 
-    def _find_value_right_or_below(self, elements, labels):
-        """Intenta buscar a la derecha; si falla, busca abajo (bloque)."""
-        # 1. Buscar a la derecha
+    def _find_value_right_of_box(self, elements, ref_box):
+        """Devuelve el texto a la derecha de una caja de referencia."""
+        y_mid = (ref_box['y_min'] + ref_box['y_max']) / 2
+        candidates = []
         for el in elements:
-            for kw in labels:
-                if fuzz.partial_ratio(kw, el['text']) > 90:
-                    # Barrido a la derecha en la misma línea
-                    candidates = []
-                    for cand in elements:
-                        if cand is el: continue
-                        # Misma Y, a la derecha X
-                        if abs(cand['y_min'] - el['y_min']) < 20 and cand['x_min'] > el['x_max']:
-                            candidates.append(cand)
-                    
-                    if candidates:
-                        candidates.sort(key=lambda x: x['x_min'])
-                        return candidates[0]['text']
+            if el is ref_box: continue
+            if el['y_min'] < y_mid < el['y_max'] and el['x_min'] > ref_box['x_max']:
+                candidates.append((el['x_min'], el['text']))
         
-        # 2. Si falla, usar lógica espacial estándar (abajo)
-        return self._extract_block_spatial(elements, labels, self.STOP_LABELS)
-
-    def _find_cui(self, elements):
-        # Lógica robusta para encontrar 13 dígitos
-        for el in elements:
-            clean = re.sub(r'[^0-9]', '', el['text'])
-            if len(clean) == 13:
-                return f"{clean[:4]} {clean[4:9]} {clean[9:]}"
-        # Intento concatenado
-        full = "".join([e['text'] for e in elements])
-        m = re.search(r'(\d{13})', re.sub(r'[^0-9]', '', full))
-        if m:
-            s = m.group(1)
-            return f"{s[:4]} {s[4:9]} {s[9:]}"
+        if candidates:
+            candidates.sort(key=lambda x: x[0])
+            return candidates[0][1]
         return None
 
-    def _preprocess_image_for_ocr(self, path):
-        img = cv2.imread(path)
-        if img is None: return path
-        # Aumentar contraste y escala de grises
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        # Denoising suave
-        gray = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
-        # Guardar temp
-        tmp_path = path + ".proc.jpg"
-        cv2.imwrite(tmp_path, gray)
-        return tmp_path
+    def _find_element(self, elements, text):
+        """Busca un elemento por texto aproximado."""
+        for el in elements:
+            if fuzz.partial_ratio(text, el['text']) > 90:
+                return el
+        return None
 
-    def _normalize_ocr_result(self, ocr_lines):
+    # --- UTILIDADES GENERALES ---
+
+    def _find_value_regex(self, text, pattern):
+        m = re.search(pattern, text)
+        return m.group(1) if m else None
+
+    def _normalize_ocr_result(self, ocr_result):
         elements = []
-        for line in ocr_lines:
+        for line in ocr_result:
             coords = line[0]
-            text = str(line[1][0]).strip().upper()
+            text = line[1][0].upper()
             xs = [p[0] for p in coords]
             ys = [p[1] for p in coords]
             elements.append({
                 'text': text,
-                'x_min': min(xs),
-                'x_max': max(xs),
-                'y_min': min(ys),
-                'y_max': max(ys)
+                'x_min': min(xs), 'x_max': max(xs),
+                'y_min': min(ys), 'y_max': max(ys)
             })
-        return elements
+        return sorted(elements, key=lambda x: x['y_min'])
