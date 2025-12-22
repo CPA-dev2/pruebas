@@ -1,5 +1,0 @@
-# .env
-CELERY_BROKER_URL=redis://localhost:6379/0
-CELERY_RESULT_BACKEND=redis://localhost:6379/0
-# Opcional: Ruta a Tesseract si no está en el PATH
-# TESSERACT_CMD=/usr/bin/tesseract

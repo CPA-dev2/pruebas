@@ -4,8 +4,7 @@
 .venv
 env/
 venv/
-media # Carpeta para archivos subidos, si aplica.
-training/
+media/
 
 # Paquetes y dependencias de Node.js
 # Es crucial ignorar esta carpeta para evitar subir miles de archivos.
@@ -90,16 +89,3 @@ local_settings.py
 # Pipfile.lock
 # poetry.lock
 # pdm.lock
-
-# Ignorar salidas de entrenamiento y modelos pesados
-entrenamiento/output/
-*.pdparams
-*.pdopt
-*.states
-*.pdmodel
-
-entrenamiento/
-
-# Ignorar archivos temporales de media
-media/temp/
-__pycache__/
