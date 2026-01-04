@@ -4,7 +4,8 @@
 .venv
 env/
 venv/
-media/
+media # Carpeta para archivos subidos, si aplica.
+training/
 
 # Paquetes y dependencias de Node.js
 # Es crucial ignorar esta carpeta para evitar subir miles de archivos.
